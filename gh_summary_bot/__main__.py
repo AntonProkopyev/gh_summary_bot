@@ -9,7 +9,7 @@ Features:
 - Analyzes: commits, PRs, issues, discussions, stars, forks, etc.
 
 Requirements:
-pip install python-telegram-bot psycopg2-binary requests python-dotenv
+pip install python-telegram-bot psycopg2-binary aiohttp python-dotenv
 """
 
 import os
@@ -22,10 +22,11 @@ from dataclasses import dataclass, asdict
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
+
+from .gh_gql_client import GitHubGraphQLClient, GitHubGraphQLError
 
 # Load environment variables
 load_dotenv()
@@ -74,30 +75,9 @@ class GitHubAnalyzer:
 
     def __init__(self, token: str):
         self.token = token
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-        self.api_url = "https://api.github.com/graphql"
+        self.client = GitHubGraphQLClient(token)
 
-    def _execute_query(self, query: str, variables: Dict = None) -> Dict:
-        """Execute GraphQL query"""
-        payload = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
-        response = requests.post(self.api_url, headers=self.headers, json=payload)
-
-        if response.status_code != 200:
-            raise Exception(f"Query failed: {response.status_code} - {response.text}")
-
-        data = response.json()
-        if "errors" in data:
-            raise Exception(f"GraphQL errors: {data['errors']}")
-
-        return data["data"]
-
-    def get_user_contributions(self, username: str, year: int) -> ContributionStats:
+    async def get_user_contributions(self, username: str, year: int) -> ContributionStats:
         """Fetch comprehensive user contribution data"""
 
         # Main user query
@@ -149,9 +129,10 @@ class GitHubAnalyzer:
         variables = {"login": username, "from": from_date, "to": to_date}
 
         try:
-            data = self._execute_query(user_query, variables)
-            user_data = data["user"]
-            contributions = user_data["contributionsCollection"]
+            async with self.client as client:
+                data = await client.query(user_query, variables)
+                user_data = data["user"]
+                contributions = user_data["contributionsCollection"]
 
             # Calculate language statistics
             languages = {}
@@ -194,8 +175,11 @@ class GitHubAnalyzer:
                 lines_deleted=lines_deleted,
             )
 
-        except Exception as e:
+        except GitHubGraphQLError as e:
             logger.error(f"Error fetching data for {username}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching data for {username}: {e}")
             raise
 
 
@@ -389,7 +373,7 @@ class TelegramBot:
 
         try:
             # Fetch data from GitHub
-            stats = self.github.get_user_contributions(username, year)
+            stats = await self.github.get_user_contributions(username, year)
 
             # Save to database
             self.db.save_report(stats)
