@@ -151,6 +151,108 @@ class DatabaseManager:
 
         return None
 
+    async def get_all_time_stats(self, username: str) -> Optional[Dict]:
+        """Aggregate all-time statistics for a user across all years"""
+        # First get cumulative stats
+        cumulative_query = """
+        SELECT 
+            username,
+            COUNT(*) as total_years,
+            SUM(total_commits) as total_commits,
+            SUM(total_prs) as total_prs,
+            SUM(total_issues) as total_issues,
+            SUM(total_discussions) as total_discussions,
+            SUM(total_reviews) as total_reviews,
+            SUM(private_contributions) as private_contributions,
+            SUM(lines_added) as lines_added,
+            SUM(lines_deleted) as lines_deleted,
+            MIN(year) as first_year,
+            MAX(year) as last_year,
+            MAX(created_at) as last_updated
+        FROM contribution_reports 
+        WHERE username = %s
+        GROUP BY username
+        """
+
+        # Get latest snapshot values from the most recent year
+        snapshot_query = """
+        SELECT 
+            repositories_contributed,
+            starred_repos, 
+            followers, 
+            following, 
+            public_repos
+        FROM contribution_reports 
+        WHERE username = %s 
+        ORDER BY year DESC 
+        LIMIT 1
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # Get cumulative stats
+                await cur.execute(cumulative_query, (username,))
+                cumulative_result = await cur.fetchone()
+                
+                if not cumulative_result:
+                    return None
+                
+                # Get snapshot stats from latest year
+                await cur.execute(snapshot_query, (username,))
+                snapshot_result = await cur.fetchone()
+
+        if cumulative_result and snapshot_result:
+            cumulative_columns = [
+                "username", "total_years", "total_commits", "total_prs", 
+                "total_issues", "total_discussions", "total_reviews",
+                "private_contributions", "lines_added", "lines_deleted", 
+                "first_year", "last_year", "last_updated"
+            ]
+            result_dict = dict(zip(cumulative_columns, cumulative_result))
+            
+            snapshot_columns = [
+                "repositories_contributed", "starred_repos", "followers", 
+                "following", "public_repos"
+            ]
+            snapshot_dict = dict(zip(snapshot_columns, snapshot_result))
+            result_dict.update(snapshot_dict)
+            
+            # Get aggregated language statistics
+            lang_query = """
+            SELECT jsonb_object_agg(lang, total_commits) as languages
+            FROM (
+                SELECT lang, SUM(commits::integer) as total_commits
+                FROM contribution_reports cr,
+                     jsonb_each_text(cr.languages) AS lang_data(lang, commits)
+                WHERE cr.username = %s
+                GROUP BY lang
+                ORDER BY total_commits DESC
+            ) lang_stats
+            """
+            
+            async with conn.cursor() as cur:
+                await cur.execute(lang_query, (username,))
+                lang_result = await cur.fetchone()
+                result_dict["languages"] = lang_result[0] if lang_result and lang_result[0] else {}
+            
+            return result_dict
+
+        return None
+
+    async def get_existing_years(self, username: str) -> list:
+        """Get list of years that already have reports for a user"""
+        query = """
+        SELECT year FROM contribution_reports 
+        WHERE username = %s 
+        ORDER BY year
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, (username,))
+                results = await cur.fetchall()
+                return [row[0] for row in results] if results else []
+
     async def save_telegram_user(self, telegram_id: int, github_username: str = None):
         """Save or update Telegram user"""
         query = """
