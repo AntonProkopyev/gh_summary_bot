@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
-"""
-GitHub Contribution Analyzer with PostgreSQL Storage and Telegram Bot Interface
-
-Features:
-- Fetches user contributions using GitHub GraphQL API
-- Stores reports in PostgreSQL database
-- Telegram bot interface for easy access
-- Analyzes: commits, PRs, issues, discussions, stars, forks, etc.
-
-Requirements:
-pip install python-telegram-bot aiopg aiohttp python-dotenv
-"""
 
 import asyncio
 import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Dict, Optional
 
 import aiopg
 from dotenv import load_dotenv
