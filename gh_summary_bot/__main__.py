@@ -12,18 +12,18 @@ Requirements:
 pip install python-telegram-bot aiopg aiohttp python-dotenv
 """
 
-import os
+import asyncio
 import json
 import logging
+import os
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-import asyncio
-from dataclasses import dataclass, asdict
 
 import aiopg
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from .gh_gql_client import GitHubGraphQLClient, GitHubGraphQLError
 
@@ -298,14 +298,30 @@ class DatabaseManager:
         if result:
             # Convert tuple result to dict
             columns = [
-                'id', 'username', 'year', 'total_commits', 'total_prs', 'total_issues',
-                'total_discussions', 'total_reviews', 'repositories_contributed',
-                'languages', 'starred_repos', 'followers', 'following', 'public_repos',
-                'private_contributions', 'lines_added', 'lines_deleted', 'created_at'
+                "id",
+                "username",
+                "year",
+                "total_commits",
+                "total_prs",
+                "total_issues",
+                "total_discussions",
+                "total_reviews",
+                "repositories_contributed",
+                "languages",
+                "starred_repos",
+                "followers",
+                "following",
+                "public_repos",
+                "private_contributions",
+                "lines_added",
+                "lines_deleted",
+                "created_at",
             ]
             result_dict = dict(zip(columns, result))
             # aiopg returns JSONB fields as Python objects, not JSON strings
-            result_dict["languages"] = result_dict["languages"] if result_dict["languages"] else {}
+            result_dict["languages"] = (
+                result_dict["languages"] if result_dict["languages"] else {}
+            )
             return result_dict
 
         return None
@@ -563,7 +579,7 @@ class TelegramBot:
         await self.app.initialize()
         await self.app.start()
         await self.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        
+
         # Keep the bot running
         try:
             await asyncio.Event().wait()
@@ -590,7 +606,7 @@ async def main():
     github_analyzer = GitHubAnalyzer(GITHUB_TOKEN)
     db_manager = DatabaseManager(DATABASE_URL)
     await db_manager.initialize()
-    
+
     telegram_bot = TelegramBot(
         TELEGRAM_TOKEN,
         github_analyzer,
