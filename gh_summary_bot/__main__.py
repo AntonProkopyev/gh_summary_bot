@@ -77,7 +77,9 @@ class GitHubAnalyzer:
         self.token = token
         self.client = GitHubGraphQLClient(token)
 
-    async def get_user_contributions(self, username: str, year: int) -> ContributionStats:
+    async def get_user_contributions(
+        self, username: str, year: int
+    ) -> ContributionStats:
         """Fetch comprehensive user contribution data"""
 
         # Main user query
@@ -290,7 +292,7 @@ class DatabaseManager:
                 result = cur.fetchone()
 
         if result:
-            result["languages"] = json.loads(result["languages"])
+            result["languages"] = result["languages"]
 
         return result
 
