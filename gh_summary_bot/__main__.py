@@ -9,7 +9,7 @@ Features:
 - Analyzes: commits, PRs, issues, discussions, stars, forks, etc.
 
 Requirements:
-pip install python-telegram-bot psycopg2-binary aiohttp python-dotenv
+pip install python-telegram-bot aiopg aiohttp python-dotenv
 """
 
 import os
@@ -20,8 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import asyncio
 from dataclasses import dataclass, asdict
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import aiopg
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
@@ -190,13 +189,20 @@ class DatabaseManager:
 
     def __init__(self, database_url: str):
         self.database_url = database_url
-        self._create_tables()
+        self.pool = None
 
-    def _get_connection(self):
-        """Get database connection"""
-        return psycopg2.connect(self.database_url)
+    async def initialize(self):
+        """Initialize connection pool and create tables"""
+        self.pool = await aiopg.create_pool(self.database_url)
+        await self._create_tables()
 
-    def _create_tables(self):
+    async def close(self):
+        """Close connection pool"""
+        if self.pool:
+            self.pool.close()
+            await self.pool.wait_closed()
+
+    async def _create_tables(self):
         """Create necessary database tables"""
         create_table_query = """
         CREATE TABLE IF NOT EXISTS contribution_reports (
@@ -230,12 +236,11 @@ class DatabaseManager:
         );
         """
 
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(create_table_query)
-            conn.commit()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(create_table_query)
 
-    def save_report(self, stats: ContributionStats) -> int:
+    async def save_report(self, stats: ContributionStats) -> int:
         """Save or update contribution report"""
         insert_query = """
         INSERT INTO contribution_reports (
@@ -269,34 +274,43 @@ class DatabaseManager:
         RETURNING id;
         """
 
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
                 data = asdict(stats)
                 data["languages"] = json.dumps(data["languages"])
-                cur.execute(insert_query, data)
-                report_id = cur.fetchone()[0]
-            conn.commit()
+                await cur.execute(insert_query, data)
+                report_id = (await cur.fetchone())[0]
 
         return report_id
 
-    def get_report(self, username: str, year: int) -> Optional[Dict]:
+    async def get_report(self, username: str, year: int) -> Optional[Dict]:
         """Retrieve a contribution report"""
         query = """
         SELECT * FROM contribution_reports
         WHERE username = %s AND year = %s
         """
 
-        with self._get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query, (username, year))
-                result = cur.fetchone()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, (username, year))
+                result = await cur.fetchone()
 
         if result:
-            result["languages"] = result["languages"]
+            # Convert tuple result to dict
+            columns = [
+                'id', 'username', 'year', 'total_commits', 'total_prs', 'total_issues',
+                'total_discussions', 'total_reviews', 'repositories_contributed',
+                'languages', 'starred_repos', 'followers', 'following', 'public_repos',
+                'private_contributions', 'lines_added', 'lines_deleted', 'created_at'
+            ]
+            result_dict = dict(zip(columns, result))
+            # aiopg returns JSONB fields as Python objects, not JSON strings
+            result_dict["languages"] = result_dict["languages"] if result_dict["languages"] else {}
+            return result_dict
 
-        return result
+        return None
 
-    def save_telegram_user(self, telegram_id: int, github_username: str = None):
+    async def save_telegram_user(self, telegram_id: int, github_username: str = None):
         """Save or update Telegram user"""
         query = """
         INSERT INTO telegram_users (telegram_id, github_username, last_query)
@@ -306,10 +320,9 @@ class DatabaseManager:
             last_query = CURRENT_TIMESTAMP
         """
 
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, (telegram_id, github_username))
-            conn.commit()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, (telegram_id, github_username))
 
 
 class TelegramBot:
@@ -329,7 +342,7 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user_id = update.effective_user.id
-        self.db.save_telegram_user(user_id)
+        await self.db.save_telegram_user(user_id)
 
         welcome_message = (
             "🚀 *GitHub Contribution Analyzer Bot*\n\n"
@@ -378,8 +391,8 @@ class TelegramBot:
             stats = await self.github.get_user_contributions(username, year)
 
             # Save to database
-            self.db.save_report(stats)
-            self.db.save_telegram_user(update.effective_user.id, username)
+            await self.db.save_report(stats)
+            await self.db.save_telegram_user(update.effective_user.id, username)
 
             # Format and send report
             report = self._format_report(stats)
@@ -421,7 +434,7 @@ class TelegramBot:
         username = context.args[0]
         year = int(context.args[1])
 
-        report = self.db.get_report(username, year)
+        report = await self.db.get_report(username, year)
         if report:
             stats = ContributionStats(**report)
             formatted = self._format_report(stats)
@@ -447,7 +460,7 @@ class TelegramBot:
         if action == "lang":
             username = data[1]
             year = int(data[2])
-            report = self.db.get_report(username, year)
+            report = await self.db.get_report(username, year)
             if report and report["languages"]:
                 languages = report["languages"]
                 sorted_langs = sorted(
@@ -471,7 +484,7 @@ class TelegramBot:
             comparison_text = f"*Year-over-Year Comparison for {username}*\n\n"
 
             for year in range(current_year - 2, current_year + 1):
-                report = self.db.get_report(username, year)
+                report = await self.db.get_report(username, year)
                 if report:
                     comparison_text += (
                         f"*{year}:*\n"
@@ -534,7 +547,7 @@ class TelegramBot:
 
         return report
 
-    def run(self):
+    async def run(self):
         """Start the Telegram bot"""
         self.app = Application.builder().token(self.token).build()
 
@@ -545,12 +558,24 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("cached", self.cached))
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
 
-        # Start polling
+        # Initialize and start polling
         logger.info("Starting Telegram bot...")
-        self.app.run_polling(allowed_updates=Update.ALL_TYPES)
+        await self.app.initialize()
+        await self.app.start()
+        await self.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Keep the bot running
+        try:
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+        finally:
+            await self.app.updater.stop()
+            await self.app.stop()
+            await self.app.shutdown()
 
 
-def main():
+async def main():
     """Main entry point"""
     # Validate environment variables
     if not GITHUB_TOKEN:
@@ -564,6 +589,8 @@ def main():
     # Initialize components
     github_analyzer = GitHubAnalyzer(GITHUB_TOKEN)
     db_manager = DatabaseManager(DATABASE_URL)
+    await db_manager.initialize()
+    
     telegram_bot = TelegramBot(
         TELEGRAM_TOKEN,
         github_analyzer,
@@ -572,12 +599,14 @@ def main():
 
     # Run the bot
     try:
-        telegram_bot.run()
+        await telegram_bot.run()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Bot error: {e}")
+    finally:
+        await db_manager.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
