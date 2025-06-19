@@ -1,5 +1,12 @@
 # GitHub Contribution Analyzer Bot
 
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Telegram Bot](https://img.shields.io/badge/telegram-@ghsummarybot-blue.svg)](https://t.me/ghsummarybot)
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![GitHub API](https://img.shields.io/badge/GitHub%20API-v4%20GraphQL-181717?logo=github)](https://docs.github.com/en/graphql)
+
 A sophisticated Telegram bot that analyzes GitHub user contributions using the GraphQL API, stores reports in PostgreSQL, and provides detailed analytics through an interactive chat interface.
 
 ## Features
@@ -205,3 +212,7 @@ This project is open source. See the license file for details.
 ## Support
 
 For issues and feature requests, please use the project's issue tracker.
+
+## Try the Bot
+
+You can try the bot directly on Telegram: https://t.me/ghsummarybot
