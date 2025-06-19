@@ -83,9 +83,11 @@ class TelegramBot:
                     f"🔍 Analyzing *{username}* ({year}): {message}",
                     parse_mode="Markdown",
                 )
-            
+
             # Fetch data from GitHub
-            stats = await self.github.get_user_contributions(username, year, progress_update, self.db)
+            stats = await self.github.get_user_contributions(
+                username, year, progress_update, self.db
+            )
 
             # Save to database
             await self.db.save_report(stats)
@@ -134,7 +136,9 @@ class TelegramBot:
         report = await self.db.get_report(username, year)
         if report:
             # Remove fields that aren't part of ContributionStats
-            stats_data = {k: v for k, v in report.items() if k not in ['id', 'created_at']}
+            stats_data = {
+                k: v for k, v in report.items() if k not in ["id", "created_at"]
+            }
             stats = ContributionStats(**stats_data)
             formatted = self._format_report(stats)
             await update.message.reply_text(
@@ -215,18 +219,18 @@ class TelegramBot:
             # Get existing years from database
             existing_years = await self.db.get_existing_years(username)
             current_year = datetime.now().year
-            
+
             # Determine which years to analyze (from 2008 to current year)
             all_years = list(range(2008, current_year + 1))
             missing_years = [year for year in all_years if year not in existing_years]
-            
+
             if missing_years:
                 await loading_msg.edit_text(
                     f"🔍 Found {len(existing_years)} existing reports for *{username}*.\n"
                     f"Analyzing {len(missing_years)} missing years: {missing_years[0]}-{missing_years[-1]}...",
                     parse_mode="Markdown",
                 )
-                
+
                 # Analyze missing years
                 successful_analyses = 0
                 for i, year in enumerate(missing_years, 1):
@@ -236,24 +240,26 @@ class TelegramBot:
                             f"Progress: {i}/{len(missing_years)} years",
                             parse_mode="Markdown",
                         )
-                        
+
                         # Fetch data from GitHub for this year
                         async def progress_update(message):
                             await loading_msg.edit_text(
                                 f"🔍 Year {year} ({i}/{len(missing_years)}): {message}",
                                 parse_mode="Markdown",
                             )
-                        
-                        stats = await self.github.get_user_contributions(username, year, progress_update, self.db)
-                        
+
+                        stats = await self.github.get_user_contributions(
+                            username, year, progress_update, self.db
+                        )
+
                         # Save to database
                         await self.db.save_report(stats)
                         successful_analyses += 1
-                        
+
                     except Exception as e:
                         logger.warning(f"Failed to analyze {username} for {year}: {e}")
                         continue
-                
+
                 if successful_analyses > 0:
                     await loading_msg.edit_text(
                         f"✅ Successfully analyzed {successful_analyses} additional years for *{username}*.\n"
@@ -270,12 +276,12 @@ class TelegramBot:
 
             # Get aggregated data from database
             stats = await self.db.get_all_time_stats(username)
-            
+
             if not stats:
                 await loading_msg.edit_text(
                     f"❌ No data could be retrieved for {username}.\n"
                     f"The user may not exist or have no public contributions.",
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -340,7 +346,7 @@ class TelegramBot:
             report += "No language data available\n"
 
         report += f"\n_📅 Last updated: {stats['last_updated'].strftime('%Y-%m-%d %H:%M UTC')}_"
-        
+
         return report
 
     def _format_report(self, stats: ContributionStats) -> str:

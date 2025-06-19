@@ -15,7 +15,9 @@ class GitHubAnalyzer:
         self.token = token
         self.client = GitHubGraphQLClient(token)
 
-    async def fetch_all_pull_requests(self, username: str, progress_callback=None) -> list:
+    async def fetch_all_pull_requests(
+        self, username: str, progress_callback=None
+    ) -> list:
         """Fetch all pull requests for a user (cached independently)"""
         pr_query = """
         query($login: String!, $cursor: String) {
@@ -45,20 +47,28 @@ class GitHubAnalyzer:
                     page_count += 1
                     if progress_callback:
                         if page_count == 1:
-                            await progress_callback(f"Fetching pull requests for {username}...")
+                            await progress_callback(
+                                f"Fetching pull requests for {username}..."
+                            )
                         else:
-                            await progress_callback(f"Fetching PR page {page_count} for {username}...")
-                    
-                    pr_data = await client.query(pr_query, {"login": username, "cursor": cursor})
+                            await progress_callback(
+                                f"Fetching PR page {page_count} for {username}..."
+                            )
+
+                    pr_data = await client.query(
+                        pr_query, {"login": username, "cursor": cursor}
+                    )
                     pr_result = pr_data["user"]["pullRequests"]
                     all_prs.extend(pr_result["nodes"])
-                    
+
                     if not pr_result["pageInfo"]["hasNextPage"]:
                         break
                     cursor = pr_result["pageInfo"]["endCursor"]
 
                 if progress_callback:
-                    await progress_callback(f"Collected {len(all_prs)} pull requests for {username}")
+                    await progress_callback(
+                        f"Collected {len(all_prs)} pull requests for {username}"
+                    )
 
                 return all_prs
 
@@ -66,7 +76,9 @@ class GitHubAnalyzer:
             logger.error(f"Error fetching PRs for {username}: {e}")
             raise
 
-    async def fetch_year_contributions(self, username: str, year: int, progress_callback=None) -> dict:
+    async def fetch_year_contributions(
+        self, username: str, year: int, progress_callback=None
+    ) -> dict:
         """Fetch contribution data for a specific year"""
         contributions_query = """
         query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -109,12 +121,14 @@ class GitHubAnalyzer:
 
         try:
             if progress_callback:
-                await progress_callback(f"Fetching contribution data for {username} ({year})...")
+                await progress_callback(
+                    f"Fetching contribution data for {username} ({year})..."
+                )
 
             async with self.client as client:
                 contrib_data = await client.query(
-                    contributions_query, 
-                    {"login": username, "from": from_date, "to": to_date}
+                    contributions_query,
+                    {"login": username, "from": from_date, "to": to_date},
                 )
                 return contrib_data["user"]
 
@@ -128,24 +142,34 @@ class GitHubAnalyzer:
         """Fetch comprehensive user contribution data with caching"""
         try:
             # Task 1: Get year-specific contribution data
-            user_data = await self.fetch_year_contributions(username, year, progress_callback)
+            user_data = await self.fetch_year_contributions(
+                username, year, progress_callback
+            )
             contributions = user_data["contributionsCollection"]
 
             # Task 2: Get pull requests (cached or fresh)
             all_prs = []
             if db_manager and await db_manager.has_pr_cache(username):
                 if progress_callback:
-                    await progress_callback(f"Using cached pull requests for {username}...")
+                    await progress_callback(
+                        f"Using cached pull requests for {username}..."
+                    )
                 all_prs = await db_manager.get_cached_prs(username)
             else:
                 if progress_callback:
-                    await progress_callback(f"Fetching fresh pull request data for {username}...")
-                all_prs = await self.fetch_all_pull_requests(username, progress_callback)
-                
+                    await progress_callback(
+                        f"Fetching fresh pull request data for {username}..."
+                    )
+                all_prs = await self.fetch_all_pull_requests(
+                    username, progress_callback
+                )
+
                 # Cache the PR data for future use
                 if db_manager:
                     if progress_callback:
-                        await progress_callback(f"Caching pull request data for {username}...")
+                        await progress_callback(
+                            f"Caching pull request data for {username}..."
+                        )
                     await db_manager.cache_prs(username, all_prs)
 
             # Process the data
