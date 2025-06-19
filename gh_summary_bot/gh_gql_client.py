@@ -23,11 +23,18 @@ class RateLimitInfo:
     node_count: int
 
     @classmethod
-    def from_headers(cls, headers: Dict[str, str]) -> "RateLimitInfo":
+    def from_headers(cls, headers: Dict[str, str]) -> Optional["RateLimitInfo"]:
         """Create RateLimitInfo from response headers"""
+        limit = int(headers.get("x-ratelimit-limit", 0))
+        remaining = int(headers.get("x-ratelimit-remaining", 0))
+
+        # Skip if headers are missing or invalid (GitHub returns 0/0 when headers are absent)
+        if limit == 0 and remaining == 0:
+            return None
+
         return cls(
-            limit=int(headers.get("x-ratelimit-limit", 0)),
-            remaining=int(headers.get("x-ratelimit-remaining", 0)),
+            limit=limit,
+            remaining=remaining,
             reset_at=datetime.fromtimestamp(
                 int(headers.get("x-ratelimit-reset", 0)), tz=timezone.utc
             ),
@@ -104,11 +111,15 @@ class GitHubGraphQLClient:
     def _update_rate_limit_info(self, headers: Dict[str, str]):
         """Update rate limit information from response headers"""
         try:
-            self.rate_limit_info = RateLimitInfo.from_headers(headers)
-            logger.debug(
-                f"Rate limit updated: {self.rate_limit_info.remaining}/"
-                f"{self.rate_limit_info.limit} remaining"
-            )
+            rate_limit_info = RateLimitInfo.from_headers(headers)
+            if rate_limit_info is not None:
+                self.rate_limit_info = rate_limit_info
+                logger.debug(
+                    f"Rate limit updated: {self.rate_limit_info.remaining}/"
+                    f"{self.rate_limit_info.limit} remaining"
+                )
+            else:
+                logger.debug("Rate limit headers missing or invalid, skipping update")
         except (KeyError, ValueError) as e:
             logger.warning(f"Failed to parse rate limit headers: {e}")
 

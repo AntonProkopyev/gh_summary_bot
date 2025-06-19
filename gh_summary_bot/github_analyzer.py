@@ -23,23 +23,13 @@ class GitHubAnalyzer:
         to_date = f"{year}-12-31T23:59:59Z"
 
         commits_query = """
-        query($login: String!, $from: DateTime!, $to: DateTime!, $cursor: String) {
+        query($login: String!, $from: DateTime!, $to: DateTime!) {
           user(login: $login) {
             contributionsCollection(from: $from, to: $to) {
               commitContributionsByRepository {
                 repository {
                   name
                   owner { login }
-                }
-                contributions(first: 100, after: $cursor) {
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                  nodes {
-                    occurredAt
-                    commitCount
-                  }
                 }
               }
             }
@@ -63,7 +53,6 @@ class GitHubAnalyzer:
                         "login": username,
                         "from": from_date,
                         "to": to_date,
-                        "cursor": None,
                     },
                 )
 
