@@ -235,7 +235,7 @@ class GitHubContributionSource:
                 await self._report_progress("Calculating line statistics...")
 
                 try:
-                    line_stats = await self.calculate_line_stats(username, year)
+                    line_stats = await self._calculate_lines_from_prs(username, year)
                     lines_added = line_stats.lines_added
                     lines_deleted = line_stats.lines_deleted
                 except Exception as e:
@@ -267,9 +267,6 @@ class GitHubContributionSource:
                     f"Error fetching contributions for {username} ({year}): {e}"
                 )
                 raise GitHubAPIError(f"Failed to fetch contributions: {e}")
-
-    async def calculate_line_stats(self, username: str, year: int) -> LineStats:
-        return await self._calculate_lines_from_prs(username, year)
 
     async def _calculate_lines_from_prs(self, username: str, year: int) -> LineStats:
         await self._report_progress("Fetching pull request data...")
