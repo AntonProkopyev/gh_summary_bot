@@ -9,6 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+coverage.json
+*.cover
+.hypothesis/
+.pytest_cache/
+
 CLAUDE.md
 .claude
 
