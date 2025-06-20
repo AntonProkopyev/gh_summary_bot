@@ -1,17 +1,11 @@
-from typing import Dict
-
-from .models import AllTimeStats, ContributionStats
+from .models import AllTimeStats
+from .models import ContributionStats
 
 
 class TelegramReportTemplate:
     def yearly(self, stats: ContributionStats) -> str:
         """Generate yearly contribution statistics report."""
-        total_contributions = (
-            stats.total_commits
-            + stats.total_prs
-            + stats.total_issues
-            + stats.total_discussions
-        )
+        total_contributions = stats.total_commits + stats.total_prs + stats.total_issues + stats.total_discussions
 
         report = f"""
 *GitHub Contributions Report*
@@ -46,9 +40,7 @@ class TelegramReportTemplate:
 
         # Add top 5 languages
         if stats.languages:
-            sorted_langs = sorted(
-                stats.languages.items(), key=lambda x: x[1], reverse=True
-            )[:5]
+            sorted_langs = sorted(stats.languages.items(), key=lambda x: x[1], reverse=True)[:5]
             for i, (lang, count) in enumerate(sorted_langs, 1):
                 report += f"{i}. {lang}: {count} commits\n"
         else:
@@ -58,12 +50,7 @@ class TelegramReportTemplate:
 
     def alltime(self, stats: AllTimeStats) -> str:
         """Generate all-time aggregated statistics report."""
-        total_contributions = (
-            stats.total_commits
-            + stats.total_prs
-            + stats.total_issues
-            + stats.total_discussions
-        )
+        total_contributions = stats.total_commits + stats.total_prs + stats.total_issues + stats.total_discussions
 
         report = f"""
 *🌟 All-Time GitHub Statistics*
@@ -98,21 +85,17 @@ class TelegramReportTemplate:
 
         # Add top 10 languages
         if stats.languages:
-            sorted_langs = sorted(
-                stats.languages.items(), key=lambda x: x[1], reverse=True
-            )[:10]
+            sorted_langs = sorted(stats.languages.items(), key=lambda x: x[1], reverse=True)[:10]
             for i, (lang, count) in enumerate(sorted_langs, 1):
                 report += f"{i}. {lang}: {count:,} commits\n"
         else:
             report += "No language data available\n"
 
-        report += (
-            f"\n_📅 Last updated: {stats.last_updated.strftime('%Y-%m-%d %H:%M UTC')}_"
-        )
+        report += f"\n_📅 Last updated: {stats.last_updated.strftime('%Y-%m-%d %H:%M UTC')}_"
 
         return report
 
-    def languages(self, username: str, year: int, languages: Dict[str, int]) -> str:
+    def languages(self, username: str, year: int, languages: dict[str, int]) -> str:
         """Generate language statistics report."""
         if not languages:
             return f"No language data available for {username} ({year})"
@@ -129,7 +112,7 @@ class TelegramReportTemplate:
 
 
 class ProgressMessage:
-    def __init__(self, base_message: str):
+    def __init__(self, base_message: str) -> None:
         self._base_message = base_message
 
     def with_detail(self, detail: str) -> str:

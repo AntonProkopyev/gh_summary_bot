@@ -1,8 +1,8 @@
 """Data models for GitHub contribution analysis."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
-from typing import Dict
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,7 @@ class ContributionStats:
     total_discussions: int
     total_reviews: int
     repositories_contributed: int
-    languages: Dict[str, int]
+    languages: dict[str, int]
     starred_repos: int
     followers: int
     following: int
@@ -45,7 +45,7 @@ class AllTimeStats:
     followers: int
     following: int
     public_repos: int
-    languages: Dict[str, int]
+    languages: dict[str, int]
     last_updated: datetime
 
 
@@ -60,7 +60,7 @@ class CachedReport:
     total_discussions: int
     total_reviews: int
     repositories_contributed: int
-    languages: Dict[str, int]
+    languages: dict[str, int]
     starred_repos: int
     followers: int
     following: int

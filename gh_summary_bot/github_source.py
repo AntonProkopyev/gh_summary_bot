@@ -2,12 +2,16 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC
+from datetime import datetime
+from typing import Any
 
 import aiohttp
 
-from .models import Commit, ContributionStats, LineStats, PullRequest
+from .models import Commit
+from .models import ContributionStats
+from .models import LineStats
+from .models import PullRequest
 from .protocols import ProgressReporter
 
 logger = logging.getLogger(__name__)
@@ -22,7 +26,7 @@ class RateLimit:
     node_count: int
 
     def seconds_until_reset(self) -> float:
-        return max(0, (self.reset_at - datetime.now(timezone.utc)).total_seconds())
+        return max(0, (self.reset_at - datetime.now(UTC)).total_seconds())
 
     def needs_wait(self, threshold: int = 100) -> bool:
         return self.remaining < threshold
@@ -36,7 +40,7 @@ class RequestConfig:
     min_remaining_threshold: int = 100
     safety_buffer: int = 10
 
-    def headers(self) -> Dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
@@ -57,15 +61,13 @@ class YearRange:
 
 
 class GraphQLClient:
-    def __init__(self, config: RequestConfig):
+    def __init__(self, config: RequestConfig) -> None:
         self._config = config
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._rate_limit: Optional[RateLimit] = None
+        self._session: aiohttp.ClientSession | None = None
+        self._rate_limit: RateLimit | None = None
 
     async def __aenter__(self) -> "GraphQLClient":
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self._config.timeout_seconds)
-        )
+        self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self._config.timeout_seconds))
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -73,9 +75,7 @@ class GraphQLClient:
         if self._session:
             await self._session.close()
 
-    async def query(
-        self, query: str, variables: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    async def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._session:
             raise RuntimeError("Client not initialized. Use as async context manager.")
 
@@ -83,29 +83,25 @@ class GraphQLClient:
 
         payload = {"query": query, "variables": variables or {}}
 
-        async with self._session.post(
-            self._config.base_url, json=payload, headers=self._config.headers()
-        ) as response:
+        async with self._session.post(self._config.base_url, json=payload, headers=self._config.headers()) as response:
             self._rate_limit = self._extract_rate_limit(dict(response.headers))
 
             if response.status == 401:
                 raise GitHubAPIError("Authentication failed. Check your token.")
-            elif response.status == 403:
+            if response.status == 403:
                 raise GitHubAPIError("Forbidden. You may have exceeded rate limits.")
-            elif response.status >= 400:
+            if response.status >= 400:
                 error_text = await response.text()
                 raise GitHubAPIError(f"HTTP {response.status}: {error_text}")
 
             try:
                 data = await response.json()
             except json.JSONDecodeError as e:
-                raise GitHubAPIError(f"Failed to parse JSON response: {e}")
+                raise GitHubAPIError(f"Failed to parse JSON response: {e}") from e
 
             if "errors" in data:
                 errors = data["errors"]
-                error_messages = [
-                    error.get("message", "Unknown error") for error in errors
-                ]
+                error_messages = [error.get("message", "Unknown error") for error in errors]
                 raise GitHubAPIError(f"GraphQL errors: {'; '.join(error_messages)}")
 
             return data.get("data", {})
@@ -115,18 +111,18 @@ class GraphQLClient:
             return
 
         if self._rate_limit.needs_wait(self._config.min_remaining_threshold):
-            wait_time = (
-                self._rate_limit.seconds_until_reset() + self._config.safety_buffer
-            )
+            wait_time = self._rate_limit.seconds_until_reset() + self._config.safety_buffer
             if wait_time > 0:
+                remaining = self._rate_limit.remaining
+                limit = self._rate_limit.limit
                 logger.warning(
                     f"Rate limit nearly exhausted. "
-                    f"Remaining: {self._rate_limit.remaining}/{self._rate_limit.limit}. "
+                    f"Remaining: {remaining}/{limit}. "
                     f"Waiting {wait_time:.1f} seconds until reset."
                 )
                 await asyncio.sleep(wait_time)
 
-    def _extract_rate_limit(self, headers: Dict[str, str]) -> Optional[RateLimit]:
+    def _extract_rate_limit(self, headers: dict[str, str]) -> RateLimit | None:
         try:
             limit = int(headers.get("x-ratelimit-limit", 0))
             remaining = int(headers.get("x-ratelimit-remaining", 0))
@@ -137,9 +133,7 @@ class GraphQLClient:
             return RateLimit(
                 limit=limit,
                 remaining=remaining,
-                reset_at=datetime.fromtimestamp(
-                    int(headers.get("x-ratelimit-reset", 0)), tz=timezone.utc
-                ),
+                reset_at=datetime.fromtimestamp(int(headers.get("x-ratelimit-reset", 0)), tz=UTC),
                 used=int(headers.get("x-ratelimit-used", 0)),
                 node_count=int(headers.get("x-ratelimit-resource", 0)),
             )
@@ -149,9 +143,7 @@ class GraphQLClient:
 
 
 class GitHubContributionSource:
-    def __init__(
-        self, client: GraphQLClient, progress: Optional[ProgressReporter] = None
-    ):
+    def __init__(self, client: GraphQLClient, progress: ProgressReporter | None = None) -> None:
         self._client = client
         self._progress = progress
 
@@ -159,9 +151,7 @@ class GitHubContributionSource:
         if self._progress:
             await self._progress.report(message)
 
-    def with_progress_reporter(
-        self, progress: ProgressReporter
-    ) -> "GitHubContributionSource":
+    def with_progress_reporter(self, progress: ProgressReporter) -> "GitHubContributionSource":
         return GitHubContributionSource(self._client, progress)
 
     async def contributions(self, username: str, year: int) -> ContributionStats:
@@ -219,7 +209,7 @@ class GitHubContributionSource:
 
                 await self._report_progress("Processing contribution data...")
 
-                languages: Dict[str, int] = {}
+                languages: dict[str, int] = {}
                 for repo_contrib in contributions["commitContributionsByRepository"]:
                     if repo_contrib["repository"]["primaryLanguage"]:
                         lang = repo_contrib["repository"]["primaryLanguage"]["name"]
@@ -235,9 +225,7 @@ class GitHubContributionSource:
                 await self._report_progress("Calculating line statistics...")
 
                 try:
-                    line_stats = await self._calculate_lines_from_prs(
-                        client, username, year
-                    )
+                    line_stats = await self._calculate_lines_from_prs(client, username, year)
                     lines_added = line_stats.lines_added
                     lines_deleted = line_stats.lines_deleted
                 except Exception as e:
@@ -265,14 +253,10 @@ class GitHubContributionSource:
                 )
 
             except Exception as e:
-                logger.error(
-                    f"Error fetching contributions for {username} ({year}): {e}"
-                )
-                raise GitHubAPIError(f"Failed to fetch contributions: {e}")
+                logger.exception(f"Error fetching contributions for {username} ({year})")
+                raise GitHubAPIError(f"Failed to fetch contributions: {e}") from e
 
-    async def _calculate_lines_from_prs(
-        self, client: GraphQLClient, username: str, year: int
-    ) -> LineStats:
+    async def _calculate_lines_from_prs(self, client: GraphQLClient, username: str, year: int) -> LineStats:
         await self._report_progress("Fetching pull request data...")
         year_range = YearRange(year)
 
@@ -321,25 +305,17 @@ class GitHubContributionSource:
                 )
 
                 if pr_count > 0 and pr_count % 100 == 0:
-                    await self._report_progress(
-                        f"Processed {pr_count} pull requests..."
-                    )
+                    await self._report_progress(f"Processed {pr_count} pull requests...")
 
                 pr_result = data["user"]["pullRequests"]
                 year_prs = []
 
                 for pr_node in pr_result["nodes"]:
-                    created_at = datetime.fromisoformat(
-                        pr_node["createdAt"].replace("Z", "+00:00")
-                    )
+                    created_at = datetime.fromisoformat(pr_node["createdAt"])
                     merged_at = pr_node.get("mergedAt")
 
                     if created_at.year == year_range.year or (
-                        merged_at
-                        and datetime.fromisoformat(
-                            merged_at.replace("Z", "+00:00")
-                        ).year
-                        == year_range.year
+                        merged_at and datetime.fromisoformat(merged_at).year == year_range.year
                     ):
                         year_prs.append(pr_node)
 
@@ -362,7 +338,7 @@ class GitHubContributionSource:
             logger.warning(f"Failed to calculate lines from PRs: {e}")
             return LineStats(0, 0)
 
-    async def commits(self, username: str, year: int) -> List[Commit]:
+    async def commits(self, username: str, year: int) -> list[Commit]:
         async with self._client as client:
             year_range = YearRange(year)
 
@@ -392,32 +368,31 @@ class GitHubContributionSource:
                     },
                 )
 
-                repo_contribs = data["user"]["contributionsCollection"][
-                    "commitContributionsByRepository"
-                ]
+                repo_contribs = data["user"]["contributionsCollection"]["commitContributionsByRepository"]
                 user_id = data["user"]["id"]
                 all_commits = []
                 for repo_contrib in repo_contribs:
                     repo_name = repo_contrib["repository"]["name"]
                     owner_login = repo_contrib["repository"]["owner"]["login"]
 
-                    repo_commits = await self._fetch_repo_commits(
-                        client, owner_login, repo_name, user_id, year_range
-                    )
+                    repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, year_range)
                     all_commits.extend(repo_commits)
-
+            except Exception as e:
+                logger.exception(f"Error fetching commits for {username} ({year})")
+                raise GitHubAPIError(f"Failed to fetch commits: {e}") from e
+            else:
                 return all_commits
 
-            except Exception as e:
-                logger.error(f"Error fetching commits for {username} ({year}): {e}")
-                raise GitHubAPIError(f"Failed to fetch commits: {e}")
-
-    async def pull_requests(self, username: str) -> List[PullRequest]:
+    async def pull_requests(self, username: str) -> list[PullRequest]:
         async with self._client as client:
             pr_query = """
             query($login: String!, $cursor: String) {
               user(login: $login) {
-                pullRequests(first: 100, states: [OPEN, MERGED, CLOSED], after: $cursor) {
+                pullRequests(
+                  first: 100,
+                  states: [OPEN, MERGED, CLOSED],
+                  after: $cursor
+                ) {
                   pageInfo {
                     hasNextPage
                     endCursor
@@ -432,34 +407,31 @@ class GitHubContributionSource:
             }
             """
 
-            all_prs = []
+            all_prs: list[PullRequest] = []
             cursor = None
 
             try:
                 while True:
-                    data = await client.query(
-                        pr_query, {"login": username, "cursor": cursor}
-                    )
+                    data = await client.query(pr_query, {"login": username, "cursor": cursor})
                     pr_result = data["user"]["pullRequests"]
 
-                    for pr_node in pr_result["nodes"]:
-                        all_prs.append(
-                            PullRequest(
-                                created_at=pr_node["createdAt"],
-                                additions=pr_node["additions"] or 0,
-                                deletions=pr_node["deletions"] or 0,
-                            )
+                    all_prs.extend(
+                        PullRequest(
+                            created_at=pr_node["createdAt"],
+                            additions=pr_node["additions"] or 0,
+                            deletions=pr_node["deletions"] or 0,
                         )
+                        for pr_node in pr_result["nodes"]
+                    )
 
                     if not pr_result["pageInfo"]["hasNextPage"]:
                         break
                     cursor = pr_result["pageInfo"]["endCursor"]
-
-                return all_prs
-
             except Exception as e:
-                logger.error(f"Error fetching PRs for {username}: {e}")
-                raise GitHubAPIError(f"Failed to fetch pull requests: {e}")
+                logger.exception(f"Error fetching PRs for {username}")
+                raise GitHubAPIError(f"Failed to fetch pull requests: {e}") from e
+            else:
+                return all_prs
 
     async def _fetch_repo_commits(
         self,
@@ -468,13 +440,26 @@ class GitHubContributionSource:
         repo: str,
         user_id: str,
         year_range: YearRange,
-    ) -> List[Commit]:
+    ) -> list[Commit]:
         repo_commits_query = """
-        query($owner: String!, $repo: String!, $user_id: ID!, $since: GitTimestamp!, $until: GitTimestamp!, $cursor: String) {
+        query(
+          $owner: String!,
+          $repo: String!,
+          $user_id: ID!,
+          $since: GitTimestamp!,
+          $until: GitTimestamp!,
+          $cursor: String
+        ) {
           repository(owner: $owner, name: $repo) {
             object(expression: "HEAD") {
               ... on Commit {
-                history(first: 100, since: $since, until: $until, author: {id: $user_id}, after: $cursor) {
+                history(
+                  first: 100,
+                  since: $since,
+                  until: $until,
+                  author: {id: $user_id},
+                  after: $cursor
+                ) {
                   pageInfo {
                     hasNextPage
                     endCursor
@@ -497,7 +482,7 @@ class GitHubContributionSource:
         }
         """
 
-        commits = []
+        commits: list[Commit] = []
         cursor = None
 
         try:
@@ -520,18 +505,16 @@ class GitHubContributionSource:
                 history = data["repository"]["object"]["history"]
                 repo_commits = history["nodes"]
 
-                for commit in repo_commits:
-                    commits.append(
-                        Commit(
-                            oid=commit["oid"],
-                            committed_date=commit["committedDate"],
-                            additions=commit["additions"] or 0,
-                            deletions=commit["deletions"] or 0,
-                            author_login=commit["author"]["user"]["login"]
-                            if commit["author"]["user"]
-                            else "",
-                        )
+                commits.extend(
+                    Commit(
+                        oid=commit["oid"],
+                        committed_date=commit["committedDate"],
+                        additions=commit["additions"] or 0,
+                        deletions=commit["deletions"] or 0,
+                        author_login=commit["author"]["user"]["login"] if commit["author"]["user"] else "",
                     )
+                    for commit in repo_commits
+                )
 
                 if not history["pageInfo"]["hasNextPage"]:
                     break

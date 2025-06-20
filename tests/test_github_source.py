@@ -1,12 +1,13 @@
 """Tests for GitHub source line calculation accuracy."""
 
-import pytest
 from unittest.mock import AsyncMock
-from gh_summary_bot.github_source import (
-    GitHubContributionSource,
-    GraphQLClient,
-)
-from gh_summary_bot.models import ContributionStats, PullRequest
+
+import pytest
+
+from gh_summary_bot.github_source import GitHubContributionSource
+from gh_summary_bot.github_source import GraphQLClient
+from gh_summary_bot.models import ContributionStats
+from gh_summary_bot.models import PullRequest
 
 
 class TestGitHubSourceLineCalculation:
@@ -22,6 +23,9 @@ class TestGitHubSourceLineCalculation:
     @pytest.fixture
     def github_source(self, mock_client):
         """Create a GitHubContributionSource with mocked client."""
+        # Set up the async context manager behavior
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock()
         return GitHubContributionSource(mock_client)
 
     @pytest.fixture
@@ -93,14 +97,10 @@ class TestGitHubSourceLineCalculation:
         }
 
     @pytest.mark.asyncio
-    async def test_basic_contributions_fetch(
-        self, github_source, mock_contributions_data
-    ):
+    async def test_basic_contributions_fetch(self, github_source, mock_contributions_data, mock_client):
         """Test basic contribution fetching."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-        github_source._client.query.return_value = mock_contributions_data
+        # Set up the mock response
+        mock_client.query.return_value = mock_contributions_data
 
         result = await github_source.contributions("testuser", 2024)
 
@@ -113,12 +113,8 @@ class TestGitHubSourceLineCalculation:
         assert result.languages == {"Python": 100}
 
     @pytest.mark.asyncio
-    async def test_pull_requests_fetch(self, github_source, mock_pr_data):
+    async def test_pull_requests_fetch(self, github_source, mock_pr_data, mock_client):
         """Test pull requests fetching."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-
         # Mock PR query response
         pr_response = {
             "user": {
@@ -128,7 +124,7 @@ class TestGitHubSourceLineCalculation:
                 }
             }
         }
-        github_source._client.query.return_value = pr_response
+        mock_client.query.return_value = pr_response
 
         result = await github_source.pull_requests("testuser")
 

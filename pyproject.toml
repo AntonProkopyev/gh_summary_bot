@@ -20,12 +20,7 @@ where = ["."]
 include = ["gh_summary_bot*"]
 
 [dependency-groups]
-dev = [
-    "ruff>=0.12.0",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
-    "mypy>=1.8.0",
-]
+dev = ["ruff>=0.12.0", "pytest>=8.0.0", "pytest-asyncio>=0.24.0", "mypy>=1.8.0"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -44,11 +39,183 @@ strict_equality = false
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = [
-    "aiopg.*",
-    "telegram.*",
-    "dotenv.*",
-]
+module = ["aiopg.*", "telegram.*", "dotenv.*"]
 ignore_missing_imports = true
 
 # Remove module ignores to fix all type issues
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+fix = true
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    "W",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # pep8-naming
+    "N",
+    # pydocstyle
+    "D",
+    # pycodestyle
+    "E",
+    "W",
+    # McCabe complexity
+    "C901",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-print
+    "T20",
+    # flake8-pytest-style
+    "PT",
+    # flake8-return
+    "RET",
+    # flake8-self
+    "SLF",
+    # flake8-type-checking
+    "TCH",
+    # tryceratops
+    "TRY",
+    # Ruff-specific rules
+    "RUF",
+    # flake8-async
+    "ASYNC",
+    # flake8-logging-format
+    "LOG",
+    # Perflint
+    "PERF",
+    # Refurb
+    "FURB",
+    # flake8-pie
+    "PIE",
+    # flake8-raise
+    "RSE",
+    # flake8-use-pathlib
+    "PTH",
+    # flake8-quotes
+    "Q",
+    # flake8-annotations
+    "ANN",
+    # flake8-bandit (security)
+    "S",
+    # flake8-boolean-trap
+    "FBT",
+    # flake8-unused-arguments
+    "ARG",
+    # flake8-datetimez
+    "DTZ",
+    # flake8-errmsg
+    "EM",
+    # flake8-implicit-str-concat
+    "ISC",
+    # flake8-import-conventions
+    "ICN",
+    # flake8-logging
+    "LOG",
+    # flake8-no-pep420
+    "INP",
+]
+
+ignore = [
+    # Allow non-abstract empty methods in abstract base classes
+    "B027",
+    # Allow boolean positional values in function calls
+    "FBT003",
+    # Ignore complexity
+    "C901",
+    # Allow print statements (for CLI app)
+    "T201",
+    # Allow assert statements
+    "S101",
+    # Allow hardcoded bind all interfaces
+    "S104",
+    # Allow subprocess without shell=True
+    "S603",
+    # Allow subprocess call
+    "S607",
+    # Allow missing docstrings in magic methods
+    "D105",
+    # Allow missing docstrings in __init__
+    "D107",
+    # Allow missing docstrings in nested class
+    "D106",
+    # Allow missing module docstring
+    "D100",
+    # Allow missing class docstring  
+    "D101",
+    # Allow missing function docstring
+    "D103",
+    # Allow missing method docstring
+    "D102",
+    # Allow missing package docstring
+    "D104",
+    # One-line docstring should fit on one line
+    "D200",
+    # No blank lines allowed after function docstring
+    "D202",
+    # First line should end with a period
+    "D400",
+    # First line should be in imperative mood
+    "D401",
+    # Allow use of `assert` detected
+    "S101",
+    # Allow Any type annotation
+    "ANN401",
+    # Allow missing return type annotation for private functions
+    "ANN202",
+    # Allow missing type annotation for args
+    "ANN002",
+    # Allow missing type annotation for kwargs
+    "ANN003",
+    # Allow broad exception handling
+    "BLE001",
+    "TRY003",
+    "EM101",
+    "EM102",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    # Tests can use magic values, assertions, and print statements
+    "PLR2004",
+    "S101",
+    "T201",
+    # Tests can have missing docstrings
+    "D",
+    # Tests can use assert
+    "S101",
+    # Tests don't need type annotations
+    "ANN",
+]
+"debug_*" = [
+    # Debug files can have print statements and missing docstrings
+    "T201",
+    "D",
+    "ANN",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gh_summary_bot"]
+force-single-line = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
