@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Protocol, runtime_checkable
 from .models import (
     AllTimeStats,
     CachedReport,
-    Commit,
     ContributionStats,
     LineStats,
     PullRequest,
@@ -16,14 +15,6 @@ class GitHubSource(Protocol):
 
     async def contributions(self, username: str, year: int) -> ContributionStats:
         """Fetch user contribution statistics for a specific year."""
-        ...
-
-    async def commits(self, username: str, year: int) -> List[Commit]:
-        """Fetch all commits for a user in a specific year."""
-        ...
-
-    async def pull_requests(self, username: str) -> List[PullRequest]:
-        """Fetch all pull requests for a user."""
         ...
 
     async def calculate_line_stats(self, username: str, year: int) -> LineStats:
