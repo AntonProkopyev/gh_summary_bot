@@ -5,22 +5,8 @@ from unittest.mock import AsyncMock
 from gh_summary_bot.github_source import (
     GitHubContributionSource,
     GraphQLClient,
-    RequestConfig,
-    ProgressiveGitHubSource,
-    LineStats,
 )
-from gh_summary_bot.models import ContributionStats, PullRequest
-
-
-class MockProgressReporter:
-    """Mock progress reporter for testing."""
-
-    def __init__(self):
-        self.messages = []
-
-    async def report(self, message: str) -> None:
-        """Store progress messages for verification."""
-        self.messages.append(message)
+from gh_summary_bot.models import ContributionStats, LineStats, PullRequest
 
 
 class TestGitHubSourceLineCalculation:
@@ -29,10 +15,9 @@ class TestGitHubSourceLineCalculation:
     @pytest.fixture
     def mock_client(self):
         """Create a mocked GraphQL client."""
-        config = RequestConfig(base_url="https://test.api", token="test_token")
-        client = GraphQLClient(config)
-        client.query = AsyncMock()
-        return client
+        mock_client = AsyncMock(spec=GraphQLClient)
+        mock_client.query = AsyncMock()
+        return mock_client
 
     @pytest.fixture
     def github_source(self, mock_client):
@@ -128,21 +113,16 @@ class TestGitHubSourceLineCalculation:
         assert result.languages == {"Python": 100}
 
     @pytest.mark.asyncio
-    async def test_progressive_source_with_prs(
+    async def test_contributions_with_line_stats(
         self, github_source, mock_contributions_data
     ):
-        """Test progressive source that fetches both contributions and PR line stats."""
-        progress_reporter = MockProgressReporter()
-        progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
-
+        """Test contributions method that fetches both contributions and PR line stats."""
         # Mock the async context manager
         github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
         github_source._client.__aexit__ = AsyncMock()
 
-        # Mock contributions call
         github_source._client.query.return_value = mock_contributions_data
 
-        # Mock calculate_line_stats method
         async def mock_calculate_line_stats(username: str, year: int):
             del username, year  # Unused parameters
             return LineStats(
@@ -153,56 +133,36 @@ class TestGitHubSourceLineCalculation:
 
         github_source.calculate_line_stats = mock_calculate_line_stats
 
-        result = await progressive_source.contributions("testuser", 2024)
+        result = await github_source.contributions("testuser", 2024)
 
-        # Verify line calculations from PRs
+        # Verify line calculations from PRs are integrated
         assert result.lines_added == 115
         assert result.lines_deleted == 23
-
-        # Verify progress messages were sent
-        assert len(progress_reporter.messages) >= 2
-        assert "Fetching contribution data" in progress_reporter.messages[0]
-        assert (
-            "Calculating lines using pull requests method"
-            in progress_reporter.messages[1]
-        )
+        assert result.total_commits == 150  # Other stats should still be present
 
     @pytest.mark.asyncio
-    async def test_progressive_source_fallback(
+    async def test_contributions_fallback_on_line_stats_error(
         self, github_source, mock_contributions_data
     ):
-        """Test progressive source fallback when PR line calculation fails."""
-        progress_reporter = MockProgressReporter()
-        progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
-
+        """Test contributions method fallback when PR line calculation fails."""
         # Mock the async context manager
         github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
         github_source._client.__aexit__ = AsyncMock()
 
-        # Mock contributions call
         github_source._client.query.return_value = mock_contributions_data
 
-        # Mock calculate_line_stats method to fail
         async def mock_calculate_line_stats_fail(username: str, year: int):
             del username, year  # Unused parameters
             raise Exception("API Error")
 
         github_source.calculate_line_stats = mock_calculate_line_stats_fail
 
-        result = await progressive_source.contributions("testuser", 2024)
+        result = await github_source.contributions("testuser", 2024)
 
         # Should fallback to base stats with zero lines
         assert result.lines_added == 0
         assert result.lines_deleted == 0
         assert result.total_commits == 150  # Other stats should still be present
-
-        # Verify progress messages were sent
-        assert len(progress_reporter.messages) >= 2
-        assert "Fetching contribution data" in progress_reporter.messages[0]
-        assert (
-            "Calculating lines using pull requests method"
-            in progress_reporter.messages[1]
-        )
 
     @pytest.mark.asyncio
     async def test_calculate_line_stats_method(self, github_source):

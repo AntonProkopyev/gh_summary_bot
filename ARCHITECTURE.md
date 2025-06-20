@@ -8,7 +8,7 @@ The bot is built using Elegant Objects principles with PostgreSQL for data persi
 
 ## Core Components
 
-### GraphQLClient (`gh_summary_bot/github_source.py:72-169`)
+### GraphQLClient (`gh_summary_bot/github_source.py:64-147`)
 
 GraphQL client for GitHub API with automatic rate limit handling. This component:
 
@@ -18,14 +18,15 @@ GraphQL client for GitHub API with automatic rate limit handling. This component
 - Implements comprehensive error handling for API failures
 - Uses `RateLimit` and `RequestConfig` models
 
-### GitHubContributionSource (`gh_summary_bot/github_source.py:171-447`)
+### GitHubContributionSource (`gh_summary_bot/github_source.py:93-467`)
 
-GitHub contribution data source. Features:
+GitHub contribution data source with integrated line calculation. Features:
 
 - Fetches user contribution statistics using query configurations
+- Calculates line statistics automatically within contributions method
 - Returns `ContributionStats`, `Commit`, and `PullRequest` objects
 - Handles complex multi-query operations for commit and PR data
-- Implements proper error handling
+- Implements proper error handling with fallback for line calculation failures
 - Uses `YearRange` for date management
 
 ### PostgreSQLReportStorage (`gh_summary_bot/storage.py:13-218`)
@@ -85,16 +86,23 @@ Pull request information:
 - Contains PR creation date and line changes
 - Used for PR analysis and caching
 
+### LineStats (`gh_summary_bot/models.py:90-96`)
+Line statistics container:
+- Contains lines added/deleted counts and PR count
+- Used internally for line calculation from pull requests
+- Provides fallback data when line calculation fails
+
 ## Data Flow
 
 1. **Initialization**: Application starts and establishes database connection pool
 2. **User Request**: Telegram user issues a command (`/analyze`, `/cached`, or `/alltime`) through TelegramBotApp
 3. **Command Processing**: GitHubBotCommands processes requests using structured parameters
 4. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient
-5. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
-6. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
-7. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
-8. **Follow-up Interactions**: Users can request detailed views through callback buttons
+5. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data
+6. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
+7. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
+8. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
+9. **Follow-up Interactions**: Users can request detailed views through callback buttons
 
 ## Database Schema
 

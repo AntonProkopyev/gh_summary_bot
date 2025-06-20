@@ -17,10 +17,8 @@ from .storage import (
     PostgreSQLUserStorage,
 )
 
-# Load environment variables
 load_dotenv()
 
-# Logging setup
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -29,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 class ApplicationConfig:
     def __init__(self):
-        self.github_token: Optional[str] = os.getenv("GITHUB_TOKEN")
-        self.telegram_token: Optional[str] = os.getenv("TELEGRAM_TOKEN")
-        self.database_url: Optional[str] = os.getenv("DATABASE_URL")
+        self.github_token: str = os.environ["GITHUB_TOKEN"]
+        self.telegram_token: str = os.environ["TELEGRAM_TOKEN"]
+        self.database_url: str = os.environ["DATABASE_URL"]
 
     def validate(self) -> None:
         """Validate configuration."""
@@ -73,48 +71,30 @@ class DatabasePool:
 class Application:
     def __init__(self, config: ApplicationConfig):
         self._config = config
-        # DatabasePool will be initialized after validation
-        self._db_pool_wrapper: Optional[DatabasePool] = None
 
     async def run(self) -> None:
-        """Run the application."""
         try:
             # Validate configuration
             self._config.validate()
-
-            # After validation, we know these are not None
             assert self._config.database_url is not None
             assert self._config.github_token is not None
             assert self._config.telegram_token is not None
 
-            # Initialize database pool
-            self._db_pool_wrapper = DatabasePool(self._config.database_url)
-            pool = await self._db_pool_wrapper.initialize()
-
-            # Create storage layer
+            db_pool_wrapper = DatabasePool(self._config.database_url)
+            pool = await db_pool_wrapper.initialize()
             storage = CompositeStorage(
                 PostgreSQLReportStorage(pool),
                 PostgreSQLUserStorage(pool),
                 PostgreSQLPRCache(pool),
             )
-
-            # Create GitHub configuration
             github_config = RequestConfig(
                 base_url="https://api.github.com/graphql",
                 token=self._config.github_token,
             )
-
-            # Create GitHub client - will be managed by the source
             client = GraphQLClient(github_config)
             github_source = GitHubContributionSource(client)
-
-            # Create template
             template = TelegramReportTemplate()
-
-            # Create bot commands
             bot_commands = GitHubBotCommands(github_source, storage, template)
-
-            # Create and run Telegram bot
             bot = TelegramBotApp(self._config.telegram_token, bot_commands)
             await bot.run()
 
@@ -123,12 +103,11 @@ class Application:
         except Exception as e:
             logger.error(f"Application error: {e}")
         finally:
-            if self._db_pool_wrapper:
-                await self._db_pool_wrapper.close()
+            if db_pool_wrapper:
+                await db_pool_wrapper.close()
 
 
 async def main():
-    """Main entry point."""
     config = ApplicationConfig()
     app = Application(config)
     await app.run()
