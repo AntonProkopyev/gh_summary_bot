@@ -70,7 +70,8 @@ class GitHubBotCommands:
             return f"Invalid year! Please choose between 2008 and {datetime.now().year}"
 
         try:
-            stats = await self._github.contributions(username, year)
+            github_with_progress = self._github.with_progress_reporter(progress)
+            stats = await github_with_progress.contributions(username, year)
 
             await self._storage.reports.store(stats)
             await self._storage.users.store_user(user_id, username)
@@ -147,7 +148,10 @@ class GitHubBotCommands:
                             f"Year {year} ({i}/{len(missing_years)})"
                         )
 
-                        stats = await self._github.contributions(username, year)
+                        github_with_progress = self._github.with_progress_reporter(
+                            year_progress
+                        )
+                        stats = await github_with_progress.contributions(username, year)
                         await self._storage.reports.store(stats)
                         successful_analyses += 1
 
