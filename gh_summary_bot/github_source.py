@@ -14,6 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class LineStats:
+    """Container for line statistics from pull requests."""
+
+    lines_added: int
+    lines_deleted: int
+    pr_count: int = 0
+
+
+@dataclass(frozen=True)
 class RateLimit:
     limit: int
     remaining: int
@@ -254,6 +263,100 @@ class GitHubContributionSource:
                 )
                 raise GitHubAPIError(f"Failed to fetch contributions: {e}")
 
+    async def calculate_line_stats(self, username: str, year: int) -> LineStats:
+        """Calculate line statistics using pull requests method."""
+        return await self._calculate_lines_from_prs(username, year)
+
+    async def _calculate_lines_from_prs(self, username: str, year: int) -> LineStats:
+        """Calculate lines added/deleted from merged pull requests in the given year."""
+        async with self._client as client:
+            year_range = YearRange(year)
+
+            pr_query = """
+            query($login: String!, $cursor: String) {
+              user(login: $login) {
+                pullRequests(
+                  first: 100,
+                  states: [MERGED],
+                  after: $cursor,
+                  orderBy: {field: CREATED_AT, direction: DESC}
+                ) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    createdAt
+                    mergedAt
+                    additions
+                    deletions
+                    baseRepository {
+                      owner {
+                        login
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """
+
+            total_added = 0
+            total_deleted = 0
+            pr_count = 0
+            cursor = None
+
+            try:
+                while True:
+                    data = await client.query(
+                        pr_query,
+                        {
+                            "login": username,
+                            "cursor": cursor,
+                        },
+                    )
+
+                    pr_result = data["user"]["pullRequests"]
+                    year_prs = []
+
+                    # Filter PRs by year and merge status
+                    for pr_node in pr_result["nodes"]:
+                        created_at = datetime.fromisoformat(
+                            pr_node["createdAt"].replace("Z", "+00:00")
+                        )
+                        merged_at = pr_node.get("mergedAt")
+
+                        # Include PR if created in target year or merged in target year
+                        if created_at.year == year_range.year or (
+                            merged_at
+                            and datetime.fromisoformat(
+                                merged_at.replace("Z", "+00:00")
+                            ).year
+                            == year_range.year
+                        ):
+                            year_prs.append(pr_node)
+
+                    # Calculate stats for year PRs
+                    for pr_node in year_prs:
+                        total_added += pr_node["additions"] or 0
+                        total_deleted += pr_node["deletions"] or 0
+                        pr_count += 1
+
+                    if not pr_result["pageInfo"]["hasNextPage"]:
+                        break
+                    cursor = pr_result["pageInfo"]["endCursor"]
+
+                return LineStats(
+                    lines_added=total_added,
+                    lines_deleted=total_deleted,
+                    pr_count=pr_count,
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to calculate lines from PRs: {e}")
+                # Return empty stats on failure
+                return LineStats(0, 0)
+
     async def commits(self, username: str, year: int) -> List[Commit]:
         """Fetch all commits for a user in a specific year."""
         async with self._client as client:
@@ -289,8 +392,8 @@ class GitHubContributionSource:
                 repo_contribs = data["user"]["contributionsCollection"][
                     "commitContributionsByRepository"
                 ]
-                all_commits = []
                 user_id = data["user"]["id"]
+                all_commits = []
                 for repo_contrib in repo_contribs:
                     repo_name = repo_contrib["repository"]["name"]
                     owner_login = repo_contrib["repository"]["owner"]["login"]
@@ -362,7 +465,7 @@ class GitHubContributionSource:
         client: GraphQLClient,
         owner: str,
         repo: str,
-        user_id: int,
+        user_id: str,
         year_range: YearRange,
     ) -> List[Commit]:
         """Fetch commits from a specific repository for a given author and year."""
@@ -416,8 +519,8 @@ class GitHubContributionSource:
 
                 history = data["repository"]["object"]["history"]
                 repo_commits = history["nodes"]
-                print(f"Found {len(repo_commits)} commits in {owner}/{repo}")
-                # Filter commits by author username and convert to Commit objects
+
+                # Convert to Commit objects
                 for commit in repo_commits:
                     commits.append(
                         Commit(
@@ -425,7 +528,9 @@ class GitHubContributionSource:
                             committed_date=commit["committedDate"],
                             additions=commit["additions"] or 0,
                             deletions=commit["deletions"] or 0,
-                            author_login=commit["author"]["user"]["login"],
+                            author_login=commit["author"]["user"]["login"]
+                            if commit["author"]["user"]
+                            else "",
                         )
                     )
 
@@ -448,7 +553,11 @@ class GitHubAPIError(Exception):
 class ProgressiveGitHubSource:
     """GitHub source with progress reporting."""
 
-    def __init__(self, source: GitHubSource, progress: ProgressReporter):
+    def __init__(
+        self,
+        source: GitHubSource,
+        progress: ProgressReporter,
+    ):
         self._source = source
         self._progress = progress
 
@@ -460,13 +569,20 @@ class ProgressiveGitHubSource:
 
         base_stats = await self._source.contributions(username, year)
 
-        await self._progress.report(
-            "Fetching commit data for accurate line calculations..."
-        )
+        # Calculate lines using pull requests method
+        await self._progress.report("Calculating lines using pull requests method...")
+
         try:
-            commits = await self._source.commits(username, year)
-            lines_added = sum(commit.additions for commit in commits)
-            lines_deleted = sum(commit.deletions for commit in commits)
+            line_stats = await self._source.calculate_line_stats(username, year)
+
+            await self._progress.report(
+                f"Found {line_stats.lines_added:,} lines added, "
+                f"{line_stats.lines_deleted:,} lines deleted "
+                f"({line_stats.pr_count} PRs)"
+            )
+
+            lines_added = line_stats.lines_added
+            lines_deleted = line_stats.lines_deleted
 
             # Return new stats with line information
             return ContributionStats(
@@ -490,8 +606,27 @@ class ProgressiveGitHubSource:
             )
 
         except Exception as e:
-            logger.warning(f"Failed to fetch commit data, using base stats: {e}")
-            return base_stats
+            logger.warning(f"Failed to calculate lines using pull requests method: {e}")
+            # Return stats with zero lines on failure
+            return ContributionStats(
+                username=base_stats.username,
+                year=base_stats.year,
+                total_commits=base_stats.total_commits,
+                total_prs=base_stats.total_prs,
+                total_issues=base_stats.total_issues,
+                total_discussions=base_stats.total_discussions,
+                total_reviews=base_stats.total_reviews,
+                repositories_contributed=base_stats.repositories_contributed,
+                languages=base_stats.languages,
+                starred_repos=base_stats.starred_repos,
+                followers=base_stats.followers,
+                following=base_stats.following,
+                public_repos=base_stats.public_repos,
+                private_contributions=base_stats.private_contributions,
+                lines_added=0,
+                lines_deleted=0,
+                created_at=base_stats.created_at,
+            )
 
     async def commits(self, username: str, year: int) -> List[Commit]:
         """Fetch commits with progress reporting."""

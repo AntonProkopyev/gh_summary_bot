@@ -7,8 +7,9 @@ from gh_summary_bot.github_source import (
     GraphQLClient,
     RequestConfig,
     ProgressiveGitHubSource,
+    LineStats,
 )
-from gh_summary_bot.models import Commit, ContributionStats, PullRequest
+from gh_summary_bot.models import ContributionStats, PullRequest
 
 
 class MockProgressReporter:
@@ -127,10 +128,10 @@ class TestGitHubSourceLineCalculation:
         assert result.languages == {"Python": 100}
 
     @pytest.mark.asyncio
-    async def test_progressive_source_with_commits(
-        self, github_source, mock_contributions_data, mock_commit_data
+    async def test_progressive_source_with_prs(
+        self, github_source, mock_contributions_data
     ):
-        """Test progressive source that fetches both contributions and commits."""
+        """Test progressive source that fetches both contributions and PR line stats."""
         progress_reporter = MockProgressReporter()
         progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
 
@@ -141,41 +142,36 @@ class TestGitHubSourceLineCalculation:
         # Mock contributions call
         github_source._client.query.return_value = mock_contributions_data
 
-        # Mock commits method - convert to Commit objects
-        async def mock_commits(username: str, year: int):
+        # Mock calculate_line_stats method
+        async def mock_calculate_line_stats(username: str, year: int):
             del username, year  # Unused parameters
-            return [
-                Commit(
-                    oid=commit["oid"],
-                    committed_date=commit["committedDate"],
-                    additions=commit["additions"],
-                    deletions=commit["deletions"],
-                    author_login=commit["author"]["user"]["login"],
-                )
-                for commit in mock_commit_data
-            ]
+            return LineStats(
+                lines_added=115,
+                lines_deleted=23,
+                pr_count=2,
+            )
 
-        github_source.commits = mock_commits
+        github_source.calculate_line_stats = mock_calculate_line_stats
 
         result = await progressive_source.contributions("testuser", 2024)
 
-        # Verify line calculations from commits
-        expected_lines_added = 50 + 25 + 100  # Sum of all commit additions
-        expected_lines_deleted = 10 + 5 + 30  # Sum of all commit deletions
-
-        assert result.lines_added == expected_lines_added
-        assert result.lines_deleted == expected_lines_deleted
+        # Verify line calculations from PRs
+        assert result.lines_added == 115
+        assert result.lines_deleted == 23
 
         # Verify progress messages were sent
         assert len(progress_reporter.messages) >= 2
         assert "Fetching contribution data" in progress_reporter.messages[0]
-        assert "Fetching commit data" in progress_reporter.messages[1]
+        assert (
+            "Calculating lines using pull requests method"
+            in progress_reporter.messages[1]
+        )
 
     @pytest.mark.asyncio
     async def test_progressive_source_fallback(
         self, github_source, mock_contributions_data
     ):
-        """Test progressive source fallback when commit fetching fails."""
+        """Test progressive source fallback when PR line calculation fails."""
         progress_reporter = MockProgressReporter()
         progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
 
@@ -186,12 +182,12 @@ class TestGitHubSourceLineCalculation:
         # Mock contributions call
         github_source._client.query.return_value = mock_contributions_data
 
-        # Mock commits method to fail
-        async def mock_commits_fail(username: str, year: int):
+        # Mock calculate_line_stats method to fail
+        async def mock_calculate_line_stats_fail(username: str, year: int):
             del username, year  # Unused parameters
             raise Exception("API Error")
 
-        github_source.commits = mock_commits_fail
+        github_source.calculate_line_stats = mock_calculate_line_stats_fail
 
         result = await progressive_source.contributions("testuser", 2024)
 
@@ -200,89 +196,93 @@ class TestGitHubSourceLineCalculation:
         assert result.lines_deleted == 0
         assert result.total_commits == 150  # Other stats should still be present
 
-        # Verify progress messages were sent (failure is logged, not reported)
+        # Verify progress messages were sent
         assert len(progress_reporter.messages) >= 2
         assert "Fetching contribution data" in progress_reporter.messages[0]
-        assert "Fetching commit data" in progress_reporter.messages[1]
+        assert (
+            "Calculating lines using pull requests method"
+            in progress_reporter.messages[1]
+        )
 
     @pytest.mark.asyncio
-    async def test_commit_data_with_none_values(
-        self, github_source, mock_contributions_data
-    ):
-        """Test handling of commits with None additions/deletions."""
-        progress_reporter = MockProgressReporter()
-        progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
-
-        commit_data_with_nones = [
-            {
-                "oid": "abc123",
-                "committedDate": "2024-01-15T10:30:00Z",
-                "additions": None,  # None value
-                "deletions": 10,
-                "author": {"user": {"login": "testuser"}},
-            },
-            {
-                "oid": "def456",
-                "committedDate": "2024-02-20T14:20:00Z",
-                "additions": 25,
-                "deletions": None,  # None value
-                "author": {"user": {"login": "testuser"}},
-            },
-        ]
-
+    async def test_calculate_line_stats_method(self, github_source):
+        """Test the calculate_line_stats method directly."""
         # Mock the async context manager
         github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
         github_source._client.__aexit__ = AsyncMock()
-        github_source._client.query.return_value = mock_contributions_data
 
-        # Mock commits method - convert to Commit objects
-        async def mock_commits_with_nones(username: str, year: int):
-            del username, year  # Unused parameters
-            return [
-                Commit(
-                    oid=commit["oid"],
-                    committed_date=commit["committedDate"],
-                    additions=commit["additions"] or 0,
-                    deletions=commit["deletions"] or 0,
-                    author_login=commit["author"]["user"]["login"],
-                )
-                for commit in commit_data_with_nones
-            ]
+        # Mock PR query response with merged PRs
+        pr_response = {
+            "user": {
+                "pullRequests": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "createdAt": "2024-01-10T08:00:00Z",
+                            "mergedAt": "2024-01-15T10:00:00Z",
+                            "additions": 75,
+                            "deletions": 15,
+                            "baseRepository": {"owner": {"login": "owner1"}},
+                        },
+                        {
+                            "createdAt": "2024-02-20T12:00:00Z",
+                            "mergedAt": "2024-02-25T14:00:00Z",
+                            "additions": 40,
+                            "deletions": 8,
+                            "baseRepository": {"owner": {"login": "owner2"}},
+                        },
+                    ],
+                }
+            }
+        }
+        github_source._client.query.return_value = pr_response
 
-        github_source.commits = mock_commits_with_nones
+        result = await github_source.calculate_line_stats("testuser", 2024)
 
-        result = await progressive_source.contributions("testuser", 2024)
+        # Should calculate lines from PRs in 2024
+        assert result.lines_added == 115  # 75 + 40
+        assert result.lines_deleted == 23  # 15 + 8
+        assert result.pr_count == 2
+
+    @pytest.mark.asyncio
+    async def test_pr_line_stats_with_none_values(self, github_source):
+        """Test handling of PRs with None additions/deletions."""
+        # Mock the async context manager
+        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
+        github_source._client.__aexit__ = AsyncMock()
+
+        # Mock PR response with None values
+        pr_response = {
+            "user": {
+                "pullRequests": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "createdAt": "2024-01-10T08:00:00Z",
+                            "mergedAt": "2024-01-15T10:00:00Z",
+                            "additions": None,  # None value
+                            "deletions": 15,
+                            "baseRepository": {"owner": {"login": "owner1"}},
+                        },
+                        {
+                            "createdAt": "2024-02-20T12:00:00Z",
+                            "mergedAt": "2024-02-25T14:00:00Z",
+                            "additions": 40,
+                            "deletions": None,  # None value
+                            "baseRepository": {"owner": {"login": "owner2"}},
+                        },
+                    ],
+                }
+            }
+        }
+        github_source._client.query.return_value = pr_response
+
+        result = await github_source.calculate_line_stats("testuser", 2024)
 
         # Should handle None values by treating them as 0
-        assert result.lines_added == 25  # Only the non-None value
-        assert result.lines_deleted == 10  # Only the non-None value
-
-    @pytest.mark.asyncio
-    async def test_empty_commit_data_handling(
-        self, github_source, mock_contributions_data
-    ):
-        """Test handling of empty commit data."""
-        progress_reporter = MockProgressReporter()
-        progressive_source = ProgressiveGitHubSource(github_source, progress_reporter)
-
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-        github_source._client.query.return_value = mock_contributions_data
-
-        # Mock empty commits
-        async def mock_empty_commits(username: str, year: int):
-            del username, year  # Unused parameters
-            return []
-
-        github_source.commits = mock_empty_commits
-
-        result = await progressive_source.contributions("testuser", 2024)
-
-        # Should handle empty data gracefully
-        assert result.lines_added == 0
-        assert result.lines_deleted == 0
-        assert result.total_commits == 150  # Other stats should still be present
+        assert result.lines_added == 40  # Only the non-None value
+        assert result.lines_deleted == 15  # Only the non-None value
+        assert result.pr_count == 2
 
     @pytest.mark.asyncio
     async def test_pull_requests_fetch(self, github_source, mock_pr_data):
