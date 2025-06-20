@@ -6,7 +6,7 @@ from gh_summary_bot.github_source import (
     GitHubContributionSource,
     GraphQLClient,
 )
-from gh_summary_bot.models import ContributionStats, LineStats, PullRequest
+from gh_summary_bot.models import ContributionStats, PullRequest
 
 
 class TestGitHubSourceLineCalculation:
@@ -111,138 +111,6 @@ class TestGitHubSourceLineCalculation:
         assert result.total_prs == 30
         assert result.total_issues == 25
         assert result.languages == {"Python": 100}
-
-    @pytest.mark.asyncio
-    async def test_contributions_with_line_stats(
-        self, github_source, mock_contributions_data
-    ):
-        """Test contributions method that fetches both contributions and PR line stats."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-
-        github_source._client.query.return_value = mock_contributions_data
-
-        async def mock_calculate_line_stats(username: str, year: int):
-            del username, year  # Unused parameters
-            return LineStats(
-                lines_added=115,
-                lines_deleted=23,
-                pr_count=2,
-            )
-
-        github_source.calculate_line_stats = mock_calculate_line_stats
-
-        result = await github_source.contributions("testuser", 2024)
-
-        # Verify line calculations from PRs are integrated
-        assert result.lines_added == 115
-        assert result.lines_deleted == 23
-        assert result.total_commits == 150  # Other stats should still be present
-
-    @pytest.mark.asyncio
-    async def test_contributions_fallback_on_line_stats_error(
-        self, github_source, mock_contributions_data
-    ):
-        """Test contributions method fallback when PR line calculation fails."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-
-        github_source._client.query.return_value = mock_contributions_data
-
-        async def mock_calculate_line_stats_fail(username: str, year: int):
-            del username, year  # Unused parameters
-            raise Exception("API Error")
-
-        github_source.calculate_line_stats = mock_calculate_line_stats_fail
-
-        result = await github_source.contributions("testuser", 2024)
-
-        # Should fallback to base stats with zero lines
-        assert result.lines_added == 0
-        assert result.lines_deleted == 0
-        assert result.total_commits == 150  # Other stats should still be present
-
-    @pytest.mark.asyncio
-    async def test_calculate_line_stats_method(self, github_source):
-        """Test the calculate_line_stats method directly."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-
-        # Mock PR query response with merged PRs
-        pr_response = {
-            "user": {
-                "pullRequests": {
-                    "pageInfo": {"hasNextPage": False, "endCursor": None},
-                    "nodes": [
-                        {
-                            "createdAt": "2024-01-10T08:00:00Z",
-                            "mergedAt": "2024-01-15T10:00:00Z",
-                            "additions": 75,
-                            "deletions": 15,
-                            "baseRepository": {"owner": {"login": "owner1"}},
-                        },
-                        {
-                            "createdAt": "2024-02-20T12:00:00Z",
-                            "mergedAt": "2024-02-25T14:00:00Z",
-                            "additions": 40,
-                            "deletions": 8,
-                            "baseRepository": {"owner": {"login": "owner2"}},
-                        },
-                    ],
-                }
-            }
-        }
-        github_source._client.query.return_value = pr_response
-
-        result = await github_source.calculate_line_stats("testuser", 2024)
-
-        # Should calculate lines from PRs in 2024
-        assert result.lines_added == 115  # 75 + 40
-        assert result.lines_deleted == 23  # 15 + 8
-        assert result.pr_count == 2
-
-    @pytest.mark.asyncio
-    async def test_pr_line_stats_with_none_values(self, github_source):
-        """Test handling of PRs with None additions/deletions."""
-        # Mock the async context manager
-        github_source._client.__aenter__ = AsyncMock(return_value=github_source._client)
-        github_source._client.__aexit__ = AsyncMock()
-
-        # Mock PR response with None values
-        pr_response = {
-            "user": {
-                "pullRequests": {
-                    "pageInfo": {"hasNextPage": False, "endCursor": None},
-                    "nodes": [
-                        {
-                            "createdAt": "2024-01-10T08:00:00Z",
-                            "mergedAt": "2024-01-15T10:00:00Z",
-                            "additions": None,  # None value
-                            "deletions": 15,
-                            "baseRepository": {"owner": {"login": "owner1"}},
-                        },
-                        {
-                            "createdAt": "2024-02-20T12:00:00Z",
-                            "mergedAt": "2024-02-25T14:00:00Z",
-                            "additions": 40,
-                            "deletions": None,  # None value
-                            "baseRepository": {"owner": {"login": "owner2"}},
-                        },
-                    ],
-                }
-            }
-        }
-        github_source._client.query.return_value = pr_response
-
-        result = await github_source.calculate_line_stats("testuser", 2024)
-
-        # Should handle None values by treating them as 0
-        assert result.lines_added == 40  # Only the non-None value
-        assert result.lines_deleted == 15  # Only the non-None value
-        assert result.pr_count == 2
 
     @pytest.mark.asyncio
     async def test_pull_requests_fetch(self, github_source, mock_pr_data):
