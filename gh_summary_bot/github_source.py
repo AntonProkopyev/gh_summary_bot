@@ -196,16 +196,16 @@ class GitHubContributionSource:
                     contributions { totalCount }
                   }
                 }
-                repositories(first: 100, ownerAffiliations: OWNER) {
+                repositories(ownerAffiliations: OWNER) {
                   totalCount
                 }
                 starredRepositories { totalCount }
                 followers { totalCount }
                 following { totalCount }
-                issues(first: 100, states: [OPEN, CLOSED]) {
+                issues(states: [OPEN, CLOSED]) {
                   totalCount
                 }
-                repositoryDiscussions(first: 100) {
+                repositoryDiscussions {
                   totalCount
                 }
               }
