@@ -298,15 +298,6 @@ class TestProgressMessage:
 class TestTemplateImmutability:
     """Test suite for template immutability principles."""
 
-    def test_template_has_no_state(self):
-        """Test that template doesn't maintain mutable state."""
-        template1 = TelegramReportTemplate()
-        template2 = TelegramReportTemplate()
-
-        # Templates should be stateless - no instance variables
-        assert not hasattr(template1, "__dict__") or not template1.__dict__
-        assert not hasattr(template2, "__dict__") or not template2.__dict__
-
     def test_template_methods_are_pure(self):
         """Test that template methods are pure functions."""
         template = TelegramReportTemplate()

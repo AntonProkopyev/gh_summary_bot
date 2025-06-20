@@ -1,0 +1,9 @@
+{% if languages -%}
+*Language Statistics for {{ username }} ({{ year }})*
+
+{% for lang, count, percentage, bar in languages[:10] -%}
+`{{ (lang + '            ')[:12] }}` {{ bar }} {{ percentage }}% ({{ count }} commits)
+{% endfor -%}
+{% else -%}
+No language data available for {{ username }} ({{ year }})
+{%- endif %}
