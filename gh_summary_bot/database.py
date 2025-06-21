@@ -204,30 +204,42 @@ class DatabaseManager:
                 # Get cumulative stats
                 await cur.execute(cumulative_query, (username,))
                 cumulative_result = await cur.fetchone()
-                
+
                 if not cumulative_result:
                     return None
-                
+
                 # Get snapshot stats from latest year
                 await cur.execute(snapshot_query, (username,))
                 snapshot_result = await cur.fetchone()
 
         if cumulative_result and snapshot_result:
             cumulative_columns = [
-                "username", "total_years", "total_commits", "total_prs", 
-                "total_issues", "total_discussions", "total_reviews",
-                "private_contributions", "lines_added", "lines_deleted", 
-                "first_year", "last_year", "last_updated"
+                "username",
+                "total_years",
+                "total_commits",
+                "total_prs",
+                "total_issues",
+                "total_discussions",
+                "total_reviews",
+                "private_contributions",
+                "lines_added",
+                "lines_deleted",
+                "first_year",
+                "last_year",
+                "last_updated",
             ]
             result_dict = dict(zip(cumulative_columns, cumulative_result))
-            
+
             snapshot_columns = [
-                "repositories_contributed", "starred_repos", "followers", 
-                "following", "public_repos"
+                "repositories_contributed",
+                "starred_repos",
+                "followers",
+                "following",
+                "public_repos",
             ]
             snapshot_dict = dict(zip(snapshot_columns, snapshot_result))
             result_dict.update(snapshot_dict)
-            
+
             # Get aggregated language statistics
             lang_query = """
             SELECT jsonb_object_agg(lang, total_commits) as languages
@@ -240,12 +252,14 @@ class DatabaseManager:
                 ORDER BY total_commits DESC
             ) lang_stats
             """
-            
+
             async with conn.cursor() as cur:
                 await cur.execute(lang_query, (username,))
                 lang_result = await cur.fetchone()
-                result_dict["languages"] = lang_result[0] if lang_result and lang_result[0] else {}
-            
+                result_dict["languages"] = (
+                    lang_result[0] if lang_result and lang_result[0] else {}
+                )
+
             return result_dict
 
         return None
@@ -291,15 +305,19 @@ class DatabaseManager:
             async with conn.cursor() as cur:
                 await cur.execute(query, (username,))
                 results = await cur.fetchall()
-                return [
-                    {
-                        "pr_id": row[0],
-                        "createdAt": row[1].isoformat() + "Z",
-                        "additions": row[2],
-                        "deletions": row[3]
-                    }
-                    for row in results
-                ] if results else []
+                return (
+                    [
+                        {
+                            "pr_id": row[0],
+                            "createdAt": row[1].isoformat() + "Z",
+                            "additions": row[2],
+                            "deletions": row[3],
+                        }
+                        for row in results
+                    ]
+                    if results
+                    else []
+                )
 
     async def cache_prs(self, username: str, prs: list):
         """Cache pull requests for a user"""
@@ -320,13 +338,18 @@ class DatabaseManager:
                 for pr in prs:
                     # Extract PR ID from node_id or create one from createdAt + additions
                     pr_id = f"{pr['createdAt']}_{pr['additions']}_{pr['deletions']}"
-                    await cur.execute(insert_query, (
-                        username,
-                        pr_id,
-                        pr['createdAt'].replace('Z', '+00:00'),  # Convert to proper timestamp
-                        pr['additions'],
-                        pr['deletions']
-                    ))
+                    await cur.execute(
+                        insert_query,
+                        (
+                            username,
+                            pr_id,
+                            pr["createdAt"].replace(
+                                "Z", "+00:00"
+                            ),  # Convert to proper timestamp
+                            pr["additions"],
+                            pr["deletions"],
+                        ),
+                    )
 
     async def has_pr_cache(self, username: str) -> bool:
         """Check if user has cached PR data"""
