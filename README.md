@@ -19,23 +19,6 @@ A sophisticated Telegram bot that analyzes GitHub user contributions using the G
 - **Language Statistics**: Detailed breakdown of programming languages used
 - **Year-over-Year Comparison**: Compare contributions across different years
 
-## Architecture
-
-### Core Components
-
-- **GitHubGraphQLClient** (`gh_gql_client.py`): Async GitHub GraphQL client with automatic rate limit handling and pagination support
-- **GitHubAnalyzer** (`github_analyzer.py`): High-level interface for fetching comprehensive user contribution data
-- **DatabaseManager** (`database.py`): Async PostgreSQL operations using aiopg connection pooling
-- **TelegramBot** (`telegram_bot.py`): Interactive bot interface with command handlers and callback management
-- **ContributionStats** (`models.py`): Data class containing all GitHub contribution statistics
-
-### Data Flow
-
-1. Application initializes async database connection pool on startup
-2. Telegram user requests analysis via `/analyze username [year]`
-3. GitHubAnalyzer queries GitHub GraphQL API for comprehensive contribution data
-4. DatabaseManager stores/updates the report in PostgreSQL using async operations
-5. TelegramBot formats and displays the results with interactive buttons for detailed views
 
 ## Installation
 
@@ -51,9 +34,6 @@ A sophisticated Telegram bot that analyzes GitHub user contributions using the G
 ```bash
 # Install using uv (recommended)
 uv sync
-
-# Or install manually
-pip install python-telegram-bot aiopg aiohttp python-dotenv
 ```
 
 ## Configuration
@@ -84,7 +64,7 @@ DATABASE_URL=postgresql://username:password@localhost:5432/database_name
 ### Running the Bot
 
 ```bash
-# Using uv
+# Using uv (recommended)
 uv run python -m gh_summary_bot
 
 # Or directly with Python
@@ -97,6 +77,7 @@ python -m gh_summary_bot
 - `/help` - Show available commands
 - `/analyze username [year]` - Analyze contributions for a user (defaults to current year)
 - `/cached username year` - Retrieve cached report
+- `/alltime username` - Comprehensive analysis across all years (2008-present)
 
 ### Examples
 
@@ -104,6 +85,7 @@ python -m gh_summary_bot
 /analyze torvalds 2024
 /analyze octocat
 /cached torvalds 2023
+/alltime torvalds
 ```
 
 ### Interactive Features
@@ -113,51 +95,10 @@ After running an analysis, use the interactive buttons to:
 - **Language Stats**: View detailed programming language breakdown
 - **Compare Years**: Compare contributions across multiple years
 
-## Database Schema
-
-### contribution_reports
-
-Stores all GitHub contribution statistics with unique constraint on (username, year):
-
-```sql
-CREATE TABLE contribution_reports (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) NOT NULL,
-    year INTEGER NOT NULL,
-    total_commits INTEGER DEFAULT 0,
-    total_prs INTEGER DEFAULT 0,
-    total_issues INTEGER DEFAULT 0,
-    total_discussions INTEGER DEFAULT 0,
-    total_reviews INTEGER DEFAULT 0,
-    repositories_contributed INTEGER DEFAULT 0,
-    languages JSONB DEFAULT '{}',
-    starred_repos INTEGER DEFAULT 0,
-    followers INTEGER DEFAULT 0,
-    following INTEGER DEFAULT 0,
-    public_repos INTEGER DEFAULT 0,
-    private_contributions INTEGER DEFAULT 0,
-    lines_added INTEGER DEFAULT 0,
-    lines_deleted INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(username, year)
-);
-```
-
-### telegram_users
-
-Maps Telegram users to GitHub usernames for convenience:
-
-```sql
-CREATE TABLE telegram_users (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    github_username VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_query TIMESTAMP
-);
-```
 
 ## Development
+
+For detailed architecture information, database schema, and implementation details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Contributing
 
@@ -165,45 +106,6 @@ CREATE TABLE telegram_users (
 2. Follow the existing code style
 3. Add tests for new features
 4. Update documentation as needed
-
-## API Rate Limits
-
-The bot automatically handles GitHub API rate limits:
-
-- Monitors remaining requests
-- Automatically waits when limits are approached
-- Provides informative logging about rate limit status
-
-## Error Handling
-
-- **GitHub API Errors**: Comprehensive error handling with specific messages
-- **Database Errors**: Connection pooling with automatic retry
-- **Telegram Errors**: Graceful handling of bot API issues
-- **Rate Limiting**: Automatic backoff and retry mechanisms
-
-## Performance
-
-- **Async Architecture**: Non-blocking operations throughout
-- **Connection Pooling**: Efficient database connection management
-- **Caching**: Persistent storage reduces API calls
-- **Rate Limit Optimization**: Intelligent request scheduling
-
-## Security
-
-- Environment variable configuration for sensitive data
-- No hardcoded tokens or credentials
-- Secure database connection handling
-- Input validation for all user inputs
-
-## Monitoring
-
-The application provides comprehensive logging:
-
-- GitHub API interactions
-- Database operations
-- Rate limit status
-- Error conditions
-- User interactions
 
 ## License
 
