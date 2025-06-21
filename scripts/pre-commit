@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Run ruff check
+echo "Running ruff check..."
+if ! uv run ruff check .; then
+    echo "❌ ruff check failed. Please fix the issues before committing."
+    exit 1
+fi
+
+# Run ruff format check
+echo "Running ruff format check..."
+if ! uv run ruff format --check .; then
+    echo "❌ ruff format check failed. Please run 'uv run ruff format .' to fix formatting."
+    exit 1
+fi
+
+echo "✅ All ruff checks passed!"
+exit 0
