@@ -15,6 +15,175 @@ class GitHubAnalyzer:
         self.token = token
         self.client = GitHubGraphQLClient(token)
 
+    async def fetch_all_commits_for_year(
+        self, username: str, year: int, progress_callback=None
+    ) -> list:
+        """Fetch all commits for a user in a specific year"""
+        from_date = f"{year}-01-01T00:00:00Z"
+        to_date = f"{year}-12-31T23:59:59Z"
+
+        commits_query = """
+        query($login: String!, $from: DateTime!, $to: DateTime!, $cursor: String) {
+          user(login: $login) {
+            contributionsCollection(from: $from, to: $to) {
+              commitContributionsByRepository {
+                repository {
+                  name
+                  owner { login }
+                }
+                contributions(first: 100, after: $cursor) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    occurredAt
+                    commitCount
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        all_commits = []
+
+        try:
+            async with self.client as client:
+                if progress_callback:
+                    await progress_callback(
+                        f"Fetching commits for {username} ({year})..."
+                    )
+
+                # First, get the repository contributions
+                contrib_data = await client.query(
+                    commits_query,
+                    {
+                        "login": username,
+                        "from": from_date,
+                        "to": to_date,
+                        "cursor": None,
+                    },
+                )
+
+                repo_contribs = contrib_data["user"]["contributionsCollection"][
+                    "commitContributionsByRepository"
+                ]
+                total_repos = len(repo_contribs)
+
+                # For each repository, fetch detailed commit information
+                repo_count = 0
+                for repo_contrib in repo_contribs:
+                    repo_count += 1
+                    repo_name = repo_contrib["repository"]["name"]
+                    owner_login = repo_contrib["repository"]["owner"]["login"]
+
+                    if progress_callback:
+                        await progress_callback(
+                            f"Analyzing commits in {owner_login}/{repo_name} ({repo_count}/{total_repos})..."
+                        )
+
+                    # Fetch commits from this repository for the year
+                    repo_commits = await self._fetch_repo_commits_for_year(
+                        client, owner_login, repo_name, username, year
+                    )
+                    all_commits.extend(repo_commits)
+
+                if progress_callback:
+                    await progress_callback(
+                        f"Collected {len(all_commits)} commits for {username} ({year})"
+                    )
+
+                return all_commits
+
+        except Exception as e:
+            logger.error(f"Error fetching commits for {username} ({year}): {e}")
+            raise
+
+    async def _fetch_repo_commits_for_year(
+        self, client, owner: str, repo: str, author: str, year: int
+    ) -> list:
+        """Fetch commits from a specific repository for a given author and year"""
+        from_date = f"{year}-01-01T00:00:00Z"
+        to_date = f"{year}-12-31T23:59:59Z"
+
+        repo_commits_query = """
+        query($owner: String!, $repo: String!, $author: String!, $since: GitTimestamp!, $until: GitTimestamp!, $cursor: String) {
+          repository(owner: $owner, name: $repo) {
+            object(expression: "HEAD") {
+              ... on Commit {
+                history(first: 100, since: $since, until: $until, author: {emails: [$author]}, after: $cursor) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    oid
+                    committedDate
+                    additions
+                    deletions
+                    author {
+                      user {
+                        login
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        commits = []
+        cursor = None
+
+        try:
+            while True:
+                commit_data = await client.query(
+                    repo_commits_query,
+                    {
+                        "owner": owner,
+                        "repo": repo,
+                        "author": author,
+                        "since": from_date,
+                        "until": to_date,
+                        "cursor": cursor,
+                    },
+                )
+
+                if (
+                    not commit_data["repository"]
+                    or not commit_data["repository"]["object"]
+                ):
+                    break
+
+                history = commit_data["repository"]["object"]["history"]
+                repo_commits = history["nodes"]
+
+                # Filter commits by author username to ensure accuracy
+                filtered_commits = []
+                for commit in repo_commits:
+                    if (
+                        commit["author"]
+                        and commit["author"]["user"]
+                        and commit["author"]["user"]["login"] == author
+                    ):
+                        filtered_commits.append(commit)
+
+                commits.extend(filtered_commits)
+
+                if not history["pageInfo"]["hasNextPage"]:
+                    break
+                cursor = history["pageInfo"]["endCursor"]
+
+        except Exception as e:
+            logger.warning(f"Error fetching commits from {owner}/{repo}: {e}")
+            # Continue with other repositories even if one fails
+
+        return commits
+
     async def fetch_all_pull_requests(
         self, username: str, progress_callback=None
     ) -> list:
@@ -139,7 +308,7 @@ class GitHubAnalyzer:
     async def get_user_contributions(
         self, username: str, year: int, progress_callback=None, db_manager=None
     ) -> ContributionStats:
-        """Fetch comprehensive user contribution data with caching"""
+        """Fetch comprehensive user contribution data with commit-based line calculation"""
         try:
             # Task 1: Get year-specific contribution data
             user_data = await self.fetch_year_contributions(
@@ -147,30 +316,29 @@ class GitHubAnalyzer:
             )
             contributions = user_data["contributionsCollection"]
 
-            # Task 2: Get pull requests (cached or fresh)
-            all_prs = []
-            if db_manager and await db_manager.has_pr_cache(username):
-                if progress_callback:
-                    await progress_callback(
-                        f"Using cached pull requests for {username}..."
-                    )
-                all_prs = await db_manager.get_cached_prs(username)
-            else:
-                if progress_callback:
-                    await progress_callback(
-                        f"Fetching fresh pull request data for {username}..."
-                    )
-                all_prs = await self.fetch_all_pull_requests(
-                    username, progress_callback
+            # Task 2: Get commits for accurate line calculation
+            # This is the new commit-based approach for accurate line counting
+            if progress_callback:
+                await progress_callback(
+                    "Fetching commit data for accurate line calculations..."
                 )
 
-                # Cache the PR data for future use
-                if db_manager:
-                    if progress_callback:
-                        await progress_callback(
-                            f"Caching pull request data for {username}..."
-                        )
-                    await db_manager.cache_prs(username, all_prs)
+            try:
+                all_commits = await self.fetch_all_commits_for_year(
+                    username, year, progress_callback
+                )
+                use_commit_data = True
+            except Exception as e:
+                logger.warning(
+                    f"Failed to fetch commit data for {username} ({year}): {e}"
+                )
+                if progress_callback:
+                    await progress_callback(
+                        "Falling back to pull request data for line calculations..."
+                    )
+                # Fallback to the old PR-based method for backward compatibility
+                all_commits = []
+                use_commit_data = False
 
             # Process the data
             if progress_callback:
@@ -184,15 +352,47 @@ class GitHubAnalyzer:
                     count = repo_contrib["contributions"]["totalCount"]
                     languages[lang] = languages.get(lang, 0) + count
 
-            # Calculate lines of code for the specific year from all PRs
+            # Calculate lines of code based on available data
             lines_added = 0
             lines_deleted = 0
-            for pr in all_prs:
-                # Parse the PR creation date and check if it's in the target year
-                pr_year = int(pr["createdAt"][:4])  # Extract year from ISO date string
-                if pr_year == year:
-                    lines_added += pr["additions"]
-                    lines_deleted += pr["deletions"]
+
+            if use_commit_data and all_commits:
+                # New commit-based calculation (more accurate)
+                for commit in all_commits:
+                    lines_added += commit["additions"] or 0
+                    lines_deleted += commit["deletions"] or 0
+
+                if progress_callback:
+                    await progress_callback(
+                        f"Used commit-based calculation: {len(all_commits)} commits analyzed"
+                    )
+            else:
+                # Fallback to PR-based calculation for backward compatibility
+                if progress_callback:
+                    await progress_callback("Using fallback PR-based calculation...")
+
+                # Get PR data using the existing caching mechanism
+                all_prs = []
+                if db_manager and await db_manager.has_pr_cache(username):
+                    all_prs = await db_manager.get_cached_prs(username)
+                else:
+                    all_prs = await self.fetch_all_pull_requests(
+                        username, progress_callback
+                    )
+                    if db_manager:
+                        await db_manager.cache_prs(username, all_prs)
+
+                # Calculate from PRs (old method)
+                for pr in all_prs:
+                    pr_year = int(pr["createdAt"][:4])
+                    if pr_year == year:
+                        lines_added += pr["additions"]
+                        lines_deleted += pr["deletions"]
+
+                if progress_callback:
+                    await progress_callback(
+                        f"Used PR-based fallback: {len([pr for pr in all_prs if int(pr['createdAt'][:4]) == year])} PRs analyzed"
+                    )
 
             # Get total repositories contributed to
             repos_contributed = (
