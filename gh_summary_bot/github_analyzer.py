@@ -15,13 +15,60 @@ class GitHubAnalyzer:
         self.token = token
         self.client = GitHubGraphQLClient(token)
 
-    async def get_user_contributions(
-        self, username: str, year: int
-    ) -> ContributionStats:
-        """Fetch comprehensive user contribution data"""
+    async def fetch_all_pull_requests(self, username: str, progress_callback=None) -> list:
+        """Fetch all pull requests for a user (cached independently)"""
+        pr_query = """
+        query($login: String!, $cursor: String) {
+          user(login: $login) {
+            pullRequests(first: 100, states: [OPEN, MERGED, CLOSED], after: $cursor) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              nodes {
+                createdAt
+                additions
+                deletions
+              }
+            }
+          }
+        }
+        """
 
-        # Main user query
-        user_query = """
+        all_prs = []
+        cursor = None
+        page_count = 0
+
+        try:
+            async with self.client as client:
+                while True:
+                    page_count += 1
+                    if progress_callback:
+                        if page_count == 1:
+                            await progress_callback(f"Fetching pull requests for {username}...")
+                        else:
+                            await progress_callback(f"Fetching PR page {page_count} for {username}...")
+                    
+                    pr_data = await client.query(pr_query, {"login": username, "cursor": cursor})
+                    pr_result = pr_data["user"]["pullRequests"]
+                    all_prs.extend(pr_result["nodes"])
+                    
+                    if not pr_result["pageInfo"]["hasNextPage"]:
+                        break
+                    cursor = pr_result["pageInfo"]["endCursor"]
+
+                if progress_callback:
+                    await progress_callback(f"Collected {len(all_prs)} pull requests for {username}")
+
+                return all_prs
+
+        except Exception as e:
+            logger.error(f"Error fetching PRs for {username}: {e}")
+            raise
+
+    async def fetch_year_contributions(self, username: str, year: int, progress_callback=None) -> dict:
+        """Fetch contribution data for a specific year"""
+        contributions_query = """
         query($login: String!, $from: DateTime!, $to: DateTime!) {
           user(login: $login) {
             contributionsCollection(from: $from, to: $to) {
@@ -47,12 +94,6 @@ class GitHubAnalyzer:
             starredRepositories { totalCount }
             followers { totalCount }
             following { totalCount }
-            pullRequests(first: 100, states: [OPEN, MERGED, CLOSED]) {
-              nodes {
-                additions
-                deletions
-              }
-            }
             issues(first: 100, states: [OPEN, CLOSED]) {
               totalCount
             }
@@ -66,13 +107,50 @@ class GitHubAnalyzer:
         from_date = f"{year}-01-01T00:00:00Z"
         to_date = f"{year}-12-31T23:59:59Z"
 
-        variables = {"login": username, "from": from_date, "to": to_date}
-
         try:
+            if progress_callback:
+                await progress_callback(f"Fetching contribution data for {username} ({year})...")
+
             async with self.client as client:
-                data = await client.query(user_query, variables)
-                user_data = data["user"]
-                contributions = user_data["contributionsCollection"]
+                contrib_data = await client.query(
+                    contributions_query, 
+                    {"login": username, "from": from_date, "to": to_date}
+                )
+                return contrib_data["user"]
+
+        except Exception as e:
+            logger.error(f"Error fetching contributions for {username} ({year}): {e}")
+            raise
+
+    async def get_user_contributions(
+        self, username: str, year: int, progress_callback=None, db_manager=None
+    ) -> ContributionStats:
+        """Fetch comprehensive user contribution data with caching"""
+        try:
+            # Task 1: Get year-specific contribution data
+            user_data = await self.fetch_year_contributions(username, year, progress_callback)
+            contributions = user_data["contributionsCollection"]
+
+            # Task 2: Get pull requests (cached or fresh)
+            all_prs = []
+            if db_manager and await db_manager.has_pr_cache(username):
+                if progress_callback:
+                    await progress_callback(f"Using cached pull requests for {username}...")
+                all_prs = await db_manager.get_cached_prs(username)
+            else:
+                if progress_callback:
+                    await progress_callback(f"Fetching fresh pull request data for {username}...")
+                all_prs = await self.fetch_all_pull_requests(username, progress_callback)
+                
+                # Cache the PR data for future use
+                if db_manager:
+                    if progress_callback:
+                        await progress_callback(f"Caching pull request data for {username}...")
+                    await db_manager.cache_prs(username, all_prs)
+
+            # Process the data
+            if progress_callback:
+                await progress_callback(f"Processing data for {username} ({year})...")
 
             # Calculate language statistics
             languages = {}
@@ -82,12 +160,15 @@ class GitHubAnalyzer:
                     count = repo_contrib["contributions"]["totalCount"]
                     languages[lang] = languages.get(lang, 0) + count
 
-            # Calculate lines of code
+            # Calculate lines of code for the specific year from all PRs
             lines_added = 0
             lines_deleted = 0
-            for pr in user_data["pullRequests"]["nodes"]:
-                lines_added += pr["additions"]
-                lines_deleted += pr["deletions"]
+            for pr in all_prs:
+                # Parse the PR creation date and check if it's in the target year
+                pr_year = int(pr["createdAt"][:4])  # Extract year from ISO date string
+                if pr_year == year:
+                    lines_added += pr["additions"]
+                    lines_deleted += pr["deletions"]
 
             # Get total repositories contributed to
             repos_contributed = (

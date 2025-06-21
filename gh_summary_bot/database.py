@@ -59,6 +59,17 @@ class DatabaseManager:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_query TIMESTAMP
         );
+        
+        CREATE TABLE IF NOT EXISTS user_pull_requests (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) NOT NULL,
+            pr_id VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            additions INTEGER DEFAULT 0,
+            deletions INTEGER DEFAULT 0,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, pr_id)
+        );
         """
 
         async with self.pool.acquire() as conn:
@@ -266,3 +277,66 @@ class DatabaseManager:
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(query, (telegram_id, github_username))
+
+    async def get_cached_prs(self, username: str) -> list:
+        """Get cached pull requests for a user"""
+        query = """
+        SELECT pr_id, created_at, additions, deletions 
+        FROM user_pull_requests 
+        WHERE username = %s
+        ORDER BY created_at DESC
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, (username,))
+                results = await cur.fetchall()
+                return [
+                    {
+                        "pr_id": row[0],
+                        "createdAt": row[1].isoformat() + "Z",
+                        "additions": row[2],
+                        "deletions": row[3]
+                    }
+                    for row in results
+                ] if results else []
+
+    async def cache_prs(self, username: str, prs: list):
+        """Cache pull requests for a user"""
+        if not prs:
+            return
+
+        insert_query = """
+        INSERT INTO user_pull_requests (username, pr_id, created_at, additions, deletions)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (username, pr_id) DO UPDATE SET
+            additions = EXCLUDED.additions,
+            deletions = EXCLUDED.deletions,
+            fetched_at = CURRENT_TIMESTAMP
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                for pr in prs:
+                    # Extract PR ID from node_id or create one from createdAt + additions
+                    pr_id = f"{pr['createdAt']}_{pr['additions']}_{pr['deletions']}"
+                    await cur.execute(insert_query, (
+                        username,
+                        pr_id,
+                        pr['createdAt'].replace('Z', '+00:00'),  # Convert to proper timestamp
+                        pr['additions'],
+                        pr['deletions']
+                    ))
+
+    async def has_pr_cache(self, username: str) -> bool:
+        """Check if user has cached PR data"""
+        query = """
+        SELECT COUNT(*) FROM user_pull_requests 
+        WHERE username = %s
+        """
+
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, (username,))
+                count = (await cur.fetchone())[0]
+                return count > 0

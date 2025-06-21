@@ -77,8 +77,15 @@ class TelegramBot:
         )
 
         try:
+            # Create progress callback
+            async def progress_update(message):
+                await loading_msg.edit_text(
+                    f"🔍 Analyzing *{username}* ({year}): {message}",
+                    parse_mode="Markdown",
+                )
+            
             # Fetch data from GitHub
-            stats = await self.github.get_user_contributions(username, year)
+            stats = await self.github.get_user_contributions(username, year, progress_update, self.db)
 
             # Save to database
             await self.db.save_report(stats)
@@ -126,7 +133,9 @@ class TelegramBot:
 
         report = await self.db.get_report(username, year)
         if report:
-            stats = ContributionStats(**report)
+            # Remove fields that aren't part of ContributionStats
+            stats_data = {k: v for k, v in report.items() if k not in ['id', 'created_at']}
+            stats = ContributionStats(**stats_data)
             formatted = self._format_report(stats)
             await update.message.reply_text(
                 f"{formatted}\n\n_📅 Cached report from {report['created_at'].strftime('%Y-%m-%d %H:%M UTC')}_",
@@ -229,7 +238,13 @@ class TelegramBot:
                         )
                         
                         # Fetch data from GitHub for this year
-                        stats = await self.github.get_user_contributions(username, year)
+                        async def progress_update(message):
+                            await loading_msg.edit_text(
+                                f"🔍 Year {year} ({i}/{len(missing_years)}): {message}",
+                                parse_mode="Markdown",
+                            )
+                        
+                        stats = await self.github.get_user_contributions(username, year, progress_update, self.db)
                         
                         # Save to database
                         await self.db.save_report(stats)
