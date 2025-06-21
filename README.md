@@ -19,7 +19,6 @@ A sophisticated Telegram bot that analyzes GitHub user contributions using the G
 - **Language Statistics**: Detailed breakdown of programming languages used
 - **Year-over-Year Comparison**: Compare contributions across different years
 
-
 ## Installation
 
 ### Prerequisites
@@ -95,17 +94,20 @@ After running an analysis, use the interactive buttons to:
 - **Language Stats**: View detailed programming language breakdown
 - **Compare Years**: Compare contributions across multiple years
 
-
 ## Development
 
 For detailed architecture information, database schema, and implementation details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Contributing
 
-1. Ensure all tests pass
-2. Follow the existing code style
-3. Add tests for new features
-4. Update documentation as needed
+1. Install dependencies: `uv sync`
+2. Setup pre-commit hooks: `./scripts/setup-hooks.sh`
+3. Ensure all tests pass
+4. Follow the existing code style (enforced by ruff)
+5. Add tests for new features
+6. Update documentation as needed
+
+The pre-commit hooks will automatically run `ruff check` and `ruff format --check` before each commit to ensure code quality.
 
 ## License
 
