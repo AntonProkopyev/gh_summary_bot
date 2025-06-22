@@ -24,7 +24,26 @@ include = ["gh_summary_bot*"]
 gh_summary_bot = ["templates/*.j2"]
 
 [dependency-groups]
-dev = ["ruff>=0.12.0", "pytest>=8.0.0", "pytest-asyncio>=0.24.0", "mypy>=1.8.0"]
+dev = [
+    "ruff>=0.12.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "mypy>=1.8.0",
+    "coverage>=7.9.1",
+    "coverage-badge>=1.1.2",
+]
+
+[tool.coverage.run]
+source = ["gh_summary_bot"]
+omit = ["tests/*", "*/test_*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
 
 [tool.mypy]
 python_version = "3.13"
