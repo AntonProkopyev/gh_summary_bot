@@ -21,13 +21,13 @@ class PostgreSQLReportStorage:
             username, year, total_commits, total_prs, total_issues,
             total_discussions, total_reviews, repositories_contributed,
             languages, starred_repos, followers, following, public_repos,
-            private_contributions, lines_added, lines_deleted
+            private_contributions, lines_added, lines_deleted, lines_calculation_method
         ) VALUES (
             %(username)s, %(year)s, %(total_commits)s, %(total_prs)s,
             %(total_issues)s, %(total_discussions)s, %(total_reviews)s,
             %(repositories_contributed)s, %(languages)s, %(starred_repos)s,
             %(followers)s, %(following)s, %(public_repos)s,
-            %(private_contributions)s, %(lines_added)s, %(lines_deleted)s
+            %(private_contributions)s, %(lines_added)s, %(lines_deleted)s, %(lines_calculation_method)s
         )
         ON CONFLICT (username, year) DO UPDATE SET
             total_commits = EXCLUDED.total_commits,
@@ -44,6 +44,7 @@ class PostgreSQLReportStorage:
             private_contributions = EXCLUDED.private_contributions,
             lines_added = EXCLUDED.lines_added,
             lines_deleted = EXCLUDED.lines_deleted,
+            lines_calculation_method = EXCLUDED.lines_calculation_method,
             created_at = CURRENT_TIMESTAMP
         RETURNING id;
         """
@@ -85,7 +86,8 @@ class PostgreSQLReportStorage:
                 private_contributions=result[14],
                 lines_added=result[15],
                 lines_deleted=result[16],
-                created_at=result[17],
+                lines_calculation_method=result[17] if len(result) > 17 else "",
+                created_at=result[18] if len(result) > 18 else result[17],
             )
 
         return None
@@ -153,10 +155,22 @@ class PostgreSQLReportStorage:
             ) lang_stats
             """
 
+            # Get distinct calculation methods used
+            methods_query = """
+            SELECT DISTINCT lines_calculation_method
+            FROM contribution_reports
+            WHERE username = %s AND lines_calculation_method IS NOT NULL AND lines_calculation_method != ''
+            ORDER BY lines_calculation_method
+            """
+
             async with conn.cursor() as cur:
                 await cur.execute(lang_query, (username,))
                 lang_result = await cur.fetchone()
                 languages = lang_result[0] if lang_result and lang_result[0] else {}
+
+                await cur.execute(methods_query, (username,))
+                methods_result = await cur.fetchall()
+                calculation_methods = [row[0] for row in methods_result] if methods_result else []
 
             return AllTimeStats(
                 username=cumulative_result[0],
@@ -169,15 +183,16 @@ class PostgreSQLReportStorage:
                 private_contributions=cumulative_result[7],
                 lines_added=cumulative_result[8],
                 lines_deleted=cumulative_result[9],
+                lines_calculation_methods=calculation_methods,
                 first_year=cumulative_result[10],
                 last_year=cumulative_result[11],
-                last_updated=cumulative_result[12],
                 repositories_contributed=snapshot_result[0],
                 starred_repos=snapshot_result[1],
                 followers=snapshot_result[2],
                 following=snapshot_result[3],
                 public_repos=snapshot_result[4],
                 languages=languages,
+                last_updated=cumulative_result[12],
             )
 
         return None

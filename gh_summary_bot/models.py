@@ -23,6 +23,7 @@ class ContributionStats:
     private_contributions: int
     lines_added: int
     lines_deleted: int
+    lines_calculation_method: str = ""
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -38,6 +39,7 @@ class AllTimeStats:
     private_contributions: int
     lines_added: int
     lines_deleted: int
+    lines_calculation_methods: list[str]
     first_year: int
     last_year: int
     repositories_contributed: int
@@ -68,6 +70,7 @@ class CachedReport:
     private_contributions: int
     lines_added: int
     lines_deleted: int
+    lines_calculation_method: str
     created_at: datetime
 
 
@@ -89,8 +92,10 @@ class PullRequest:
 
 @dataclass(frozen=True)
 class LineStats:
-    """Container for line statistics from pull requests."""
+    """Container for line statistics with calculation method tracking."""
 
     lines_added: int
     lines_deleted: int
+    calculation_method: str
     pr_count: int = 0
+    commit_count: int = 0

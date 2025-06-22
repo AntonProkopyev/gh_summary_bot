@@ -37,6 +37,7 @@ class TestTelegramReportTemplate:
             private_contributions=5,
             lines_added=5000,
             lines_deleted=1500,
+            lines_calculation_method="pull_requests",
             created_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
         )
 
@@ -54,6 +55,7 @@ class TestTelegramReportTemplate:
             private_contributions=15,
             lines_added=15000,
             lines_deleted=4500,
+            lines_calculation_methods=["pull_requests", "commits"],
             first_year=2022,
             last_year=2024,
             repositories_contributed=25,
@@ -179,6 +181,7 @@ class TestTelegramReportTemplate:
             private_contributions=15,
             lines_added=15000,
             lines_deleted=4500,
+            lines_calculation_methods=["pull_requests"],
             first_year=2022,
             last_year=2024,
             repositories_contributed=25,

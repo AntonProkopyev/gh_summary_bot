@@ -226,12 +226,17 @@ class GitHubContributionSource:
 
                 try:
                     line_stats = await self._calculate_lines_from_prs(client, username, year)
+                    if line_stats.pr_count == 0:
+                        await self._report_progress("No PRs found, falling back to commit-based calculation...")
+                        line_stats = await self._calculate_lines_from_commits(client, username, year)
                     lines_added = line_stats.lines_added
                     lines_deleted = line_stats.lines_deleted
+                    calculation_method = line_stats.calculation_method
                 except Exception as e:
                     logger.warning(f"Failed to calculate line stats: {e}")
                     lines_added = 0
                     lines_deleted = 0
+                    calculation_method = "none"
 
                 return ContributionStats(
                     username=username,
@@ -250,6 +255,7 @@ class GitHubContributionSource:
                     private_contributions=contributions["restrictedContributionsCount"],
                     lines_added=lines_added,
                     lines_deleted=lines_deleted,
+                    lines_calculation_method=calculation_method,
                 )
 
             except Exception as e:
@@ -331,12 +337,83 @@ class GitHubContributionSource:
             return LineStats(
                 lines_added=total_added,
                 lines_deleted=total_deleted,
+                calculation_method="pull_requests",
                 pr_count=pr_count,
             )
 
         except Exception as e:
             logger.warning(f"Failed to calculate lines from PRs: {e}")
-            return LineStats(0, 0)
+            return LineStats(
+                lines_added=0,
+                lines_deleted=0,
+                calculation_method="error",
+                pr_count=0,
+            )
+
+    async def _calculate_lines_from_commits(self, client: GraphQLClient, username: str, year: int) -> LineStats:
+        await self._report_progress("Calculating lines from commits...")
+
+        try:
+            year_range = YearRange(year)
+
+            repos_query = """
+            query($login: String!, $from: DateTime!, $to: DateTime!) {
+              user(login: $login) {
+                id
+                contributionsCollection(from: $from, to: $to) {
+                  commitContributionsByRepository {
+                    repository {
+                      name
+                      owner { login }
+                    }
+                  }
+                }
+              }
+            }
+            """
+
+            data = await client.query(
+                repos_query,
+                {
+                    "login": username,
+                    "from": year_range.from_date(),
+                    "to": year_range.to_date(),
+                },
+            )
+
+            repo_contribs = data["user"]["contributionsCollection"]["commitContributionsByRepository"]
+            user_id = data["user"]["id"]
+
+            total_added = 0
+            total_deleted = 0
+            commit_count = 0
+
+            for repo_contrib in repo_contribs:
+                repo_name = repo_contrib["repository"]["name"]
+                owner_login = repo_contrib["repository"]["owner"]["login"]
+
+                repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, year_range)
+
+                for commit in repo_commits:
+                    total_added += commit.additions
+                    total_deleted += commit.deletions
+                    commit_count += 1
+
+            return LineStats(
+                lines_added=total_added,
+                lines_deleted=total_deleted,
+                calculation_method="commits",
+                commit_count=commit_count,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate lines from commits: {e}")
+            return LineStats(
+                lines_added=0,
+                lines_deleted=0,
+                calculation_method="error",
+                commit_count=0,
+            )
 
     async def commits(self, username: str, year: int) -> list[Commit]:
         async with self._client as client:

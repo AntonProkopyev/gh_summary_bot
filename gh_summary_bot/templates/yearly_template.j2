@@ -14,6 +14,7 @@
 • Lines Added: *{{ lines_added | format_number }}*
 • Lines Deleted: *{{ lines_deleted | format_number }}*
 • Net Lines: *{{ net_lines | format_number }}*
+{% if lines_calculation_method %}• Calculation Method: *{{ lines_calculation_method.replace('_', ' ').title() }}*{% endif %}
 
 *📈 Activity Metrics*
 • Repositories Contributed: *{{ repositories_contributed }}*

@@ -114,6 +114,7 @@ class GitHubBotCommands:
                 private_contributions=report.private_contributions,
                 lines_added=report.lines_added,
                 lines_deleted=report.lines_deleted,
+                lines_calculation_method=report.lines_calculation_method,
                 created_at=report.created_at,
             )
             formatted = self._template.yearly(stats)
