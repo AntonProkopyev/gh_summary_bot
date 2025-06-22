@@ -4,7 +4,6 @@ from .models import (
     AllTimeStats,
     CachedReport,
     ContributionStats,
-    LineStats,
     PullRequest,
 )
 
@@ -15,10 +14,6 @@ class GitHubSource(Protocol):
 
     async def contributions(self, username: str, year: int) -> ContributionStats:
         """Fetch user contribution statistics for a specific year."""
-        ...
-
-    async def calculate_line_stats(self, username: str, year: int) -> LineStats:
-        """Calculate line statistics using pull requests method."""
         ...
 
     def with_progress_reporter(self, progress: "ProgressReporter") -> "GitHubSource":
