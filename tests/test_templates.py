@@ -3,10 +3,8 @@ from datetime import datetime
 
 import pytest
 
-from gh_summary_bot.models import AllTimeStats
 from gh_summary_bot.models import ContributionStats
 from gh_summary_bot.models import DateRange
-from gh_summary_bot.templates import ProgressMessage
 from gh_summary_bot.templates import TelegramReportTemplate
 
 
@@ -40,32 +38,6 @@ class TestTelegramReportTemplate:
             lines_deleted=1500,
             lines_calculation_method="pull_requests",
             created_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
-        )
-
-    @pytest.fixture
-    def sample_alltime_stats(self):
-        """Create sample AllTimeStats for testing."""
-        return AllTimeStats(
-            username="testuser",
-            total_years=3,
-            total_commits=450,
-            total_prs=75,
-            total_issues=30,
-            total_discussions=15,
-            total_reviews=90,
-            private_contributions=15,
-            lines_added=15000,
-            lines_deleted=4500,
-            lines_calculation_methods=["pull_requests", "commits"],
-            first_year=2022,
-            last_year=2024,
-            repositories_contributed=25,
-            starred_repos=500,
-            followers=120,
-            following=200,
-            public_repos=35,
-            languages={"Python": 300, "JavaScript": 120, "TypeScript": 30},
-            last_updated=datetime(2024, 6, 19, 18, 45, 0, tzinfo=UTC),
         )
 
     def test_yearly_report_basic_structure(self, template, sample_contribution_stats):
@@ -137,168 +109,6 @@ class TestTelegramReportTemplate:
         result = template.yearly(stats)
         assert "No language data available" in result
 
-    def test_alltime_report_basic_structure(self, template, sample_alltime_stats):
-        """Test that alltime report contains expected sections."""
-        result = template.alltime(sample_alltime_stats)
-
-        assert "*🌟 All-Time GitHub Statistics*" in result
-        assert "👤 User: `testuser`" in result
-        assert "📅 Period: 2022 - 2024 (3 years)" in result
-        assert "*📊 Total Contributions*" in result
-        assert "*💻 Code Statistics*" in result
-        assert "*📈 Activity Metrics*" in result
-        assert "*🌟 Social Stats*" in result
-        assert "*🔥 Top Languages (All Time)*" in result
-
-    def test_alltime_report_calculations(self, template, sample_alltime_stats):
-        """Test that alltime report calculates totals correctly."""
-        result = template.alltime(sample_alltime_stats)
-
-        # Total contributions = 450 + 75 + 30 + 15 = 570
-        assert "• All Contributions: *570*" in result
-        assert "• Commits: *450*" in result
-        assert "• Pull Requests: *75*" in result
-
-    def test_alltime_report_formatting(self, template, sample_alltime_stats):
-        """Test that alltime report formats numbers correctly."""
-        result = template.alltime(sample_alltime_stats)
-
-        # Check comma formatting for large numbers
-        assert "• Lines Added: *15,000*" in result
-        assert "• Lines Deleted: *4,500*" in result
-        assert "• Net Lines: *10,500*" in result
-
-    def test_alltime_report_languages_limit(self, template):
-        """Test that alltime report shows up to 10 languages."""
-        # Create stats with many languages
-        many_languages = {f"Lang{i}": 100 - i for i in range(15)}
-        stats = AllTimeStats(
-            username="testuser",
-            total_years=3,
-            total_commits=450,
-            total_prs=75,
-            total_issues=30,
-            total_discussions=15,
-            total_reviews=90,
-            private_contributions=15,
-            lines_added=15000,
-            lines_deleted=4500,
-            lines_calculation_methods=["pull_requests"],
-            first_year=2022,
-            last_year=2024,
-            repositories_contributed=25,
-            starred_repos=500,
-            followers=120,
-            following=200,
-            public_repos=35,
-            languages=many_languages,
-            last_updated=datetime(2024, 6, 19, 18, 45, 0, tzinfo=UTC),
-        )
-
-        result = template.alltime(stats)
-
-        # Should show top 10 languages
-        assert "1. Lang0: 100 commits" in result
-        assert "10. Lang9: 91 commits" in result
-        # Should not show 11th language
-        assert "11. Lang10:" not in result
-
-    def test_alltime_report_timestamp(self, template, sample_alltime_stats):
-        """Test that alltime report includes last updated timestamp."""
-        result = template.alltime(sample_alltime_stats)
-
-        assert "_📅 Last updated: 2024-06-19 18:45 UTC_" in result
-
-    def test_languages_report_basic(self, template):
-        """Test basic language statistics report."""
-        languages = {"Python": 100, "JavaScript": 50, "Go": 25}
-
-        result = template.languages("testuser", 2024, languages)
-
-        assert "*Language Statistics for testuser (2024)*" in result
-        assert "Python" in result
-        assert "JavaScript" in result
-        assert "Go" in result
-
-    def test_languages_report_percentages(self, template):
-        """Test that language report calculates percentages correctly."""
-        languages = {"Python": 75, "JavaScript": 25}  # Total: 100
-
-        result = template.languages("testuser", 2024, languages)
-
-        assert "75.0%" in result  # Python should be 75%
-        assert "25.0%" in result  # JavaScript should be 25%
-
-    def test_languages_report_progress_bars(self, template):
-        """Test that language report includes progress bars."""
-        languages = {"Python": 100, "JavaScript": 50}  # Total: 150
-
-        result = template.languages("testuser", 2024, languages)
-
-        # Python: 66.7% -> 13 bars, JavaScript: 33.3% -> 6 bars
-        assert "█" in result  # Should contain progress bars
-
-    def test_languages_report_empty(self, template):
-        """Test language report with no languages."""
-        result = template.languages("testuser", 2024, {})
-
-        assert result == "No language data available for testuser (2024)"
-
-    def test_languages_report_limit_10(self, template):
-        """Test that language report limits to 10 languages."""
-        languages = {f"Lang{i}": 100 - i for i in range(15)}
-
-        result = template.languages("testuser", 2024, languages)
-
-        # Count number of language lines (should be max 10)
-        lines = result.split("\n")
-        language_lines = [line for line in lines if "`" in line and "█" in line]
-        assert len(language_lines) <= 10
-
-    def test_languages_report_sorting(self, template):
-        """Test that languages are sorted by commit count."""
-        languages = {"JavaScript": 50, "Python": 100, "Go": 75}
-
-        result = template.languages("testuser", 2024, languages)
-
-        # Should be sorted: Python (100), Go (75), JavaScript (50)
-        python_pos = result.find("Python")
-        go_pos = result.find("Go")
-        js_pos = result.find("JavaScript")
-
-        assert python_pos < go_pos < js_pos
-
-
-class TestProgressMessage:
-    """Test suite for ProgressMessage."""
-
-    @pytest.fixture
-    def progress_message(self):
-        """Create a ProgressMessage instance."""
-        return ProgressMessage("Processing data")
-
-    def test_with_detail(self, progress_message):
-        """Test creating progress message with detail."""
-        result = progress_message.with_detail("fetching commits")
-
-        assert result == "Processing data: fetching commits"
-
-    def test_with_progress(self, progress_message):
-        """Test creating progress message with progress indicator."""
-        result = progress_message.with_progress(5, 10)
-
-        assert result == "Processing data - Progress: 5/10"
-
-    def test_empty_base_message(self):
-        """Test ProgressMessage with empty base message."""
-        progress = ProgressMessage("")
-
-        result = progress.with_detail("detail")
-        assert result == ": detail"
-
-        result = progress.with_progress(1, 2)
-        assert result == " - Progress: 1/2"
-
 
 class TestTemplateImmutability:
     """Test suite for template immutability principles."""
@@ -309,7 +119,7 @@ class TestTemplateImmutability:
 
         stats = ContributionStats(
             username="testuser",
-            year=2024,
+            date_range=DateRange.calendar_year(2024),
             total_commits=10,
             total_prs=2,
             total_issues=1,
@@ -331,23 +141,6 @@ class TestTemplateImmutability:
         result2 = template.yearly(stats)
 
         assert result1 == result2
-
-    def test_progress_message_immutability(self):
-        """Test that ProgressMessage follows immutability principles."""
-        progress = ProgressMessage("test")
-
-        # Methods should return new strings, not modify state
-        detail_result = progress.with_detail("detail")
-        progress_result = progress.with_progress(1, 5)
-
-        # Base message should be preserved in the results
-        base_result = str(progress)
-        assert "test" in base_result
-
-        # Results should be different strings
-        assert detail_result != progress_result
-        assert "detail" in detail_result
-        assert "Progress:" in progress_result
 
 
 if __name__ == "__main__":

@@ -100,60 +100,6 @@ class ContributionStats:
 
 
 @dataclass(frozen=True)
-class AllTimeStats:
-    username: str
-    total_years: int
-    total_commits: int
-    total_prs: int
-    total_issues: int
-    total_discussions: int
-    total_reviews: int
-    private_contributions: int
-    lines_added: int
-    lines_deleted: int
-    lines_calculation_methods: list[str]
-    first_year: int
-    last_year: int
-    repositories_contributed: int
-    starred_repos: int
-    followers: int
-    following: int
-    public_repos: int
-    languages: dict[str, int]
-    last_updated: datetime
-
-
-@dataclass(frozen=True)
-class CachedReport:
-    id: int
-    username: str
-    year: int  # Keep for backward compatibility with existing database
-    start_date: datetime
-    end_date: datetime
-    total_commits: int
-    total_prs: int
-    total_issues: int
-    total_discussions: int
-    total_reviews: int
-    repositories_contributed: int
-    languages: dict[str, int]
-    starred_repos: int
-    followers: int
-    following: int
-    public_repos: int
-    private_contributions: int
-    lines_added: int
-    lines_deleted: int
-    lines_calculation_method: str
-    created_at: datetime
-
-    @property
-    def date_range(self) -> DateRange:
-        """Get the date range for this cached report."""
-        return DateRange(start_date=self.start_date, end_date=self.end_date)
-
-
-@dataclass(frozen=True)
 class Commit:
     oid: str
     committed_date: str

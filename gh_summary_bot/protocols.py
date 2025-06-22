@@ -1,8 +1,6 @@
 from typing import Protocol
 from typing import runtime_checkable
 
-from .models import AllTimeStats
-from .models import CachedReport
 from .models import ContributionStats
 from .models import DateRange
 
@@ -17,27 +15,6 @@ class GitHubSource(Protocol):
 
     def with_progress_reporter(self, progress: "ProgressReporter") -> "GitHubSource":
         """Create new instance with progress reporter."""
-        ...
-
-
-@runtime_checkable
-class ReportStorage(Protocol):
-    """Protocol for storing and retrieving contribution reports."""
-
-    async def store(self, stats: ContributionStats) -> int:
-        """Store contribution statistics."""
-        ...
-
-    async def retrieve(self, username: str, year: int) -> CachedReport | None:
-        """Retrieve stored contribution report."""
-        ...
-
-    async def aggregated(self, username: str) -> AllTimeStats | None:
-        """Retrieve aggregated all-time statistics."""
-        ...
-
-    async def years(self, username: str) -> list[int]:
-        """Get years with existing reports for a user."""
         ...
 
 
@@ -62,14 +39,6 @@ class BotInterface(Protocol):
         """Handle analyze command and return formatted report."""
         ...
 
-    async def cached_command(self, username: str, year: int) -> str:
-        """Handle cached command and return cached report."""
-        ...
-
-    async def alltime_command(self, username: str, user_id: int) -> str:
-        """Handle alltime command and return aggregated report."""
-        ...
-
 
 @runtime_checkable
 class ReportTemplate(Protocol):
@@ -77,14 +46,6 @@ class ReportTemplate(Protocol):
 
     def yearly(self, stats: ContributionStats) -> str:
         """Generate yearly contribution statistics."""
-        ...
-
-    def alltime(self, stats: AllTimeStats) -> str:
-        """Generate all-time aggregated statistics."""
-        ...
-
-    def languages(self, username: str, year: int, languages: dict[str, int]) -> str:
-        """Generate language statistics."""
         ...
 
 
