@@ -1,5 +1,8 @@
 import json
+import logging
 from dataclasses import asdict
+from datetime import UTC
+from datetime import datetime
 
 import aiopg
 
@@ -8,6 +11,8 @@ from .models import CachedReport
 from .models import ContributionStats
 from .protocols import ReportStorage
 from .protocols import UserStorage
+
+logger = logging.getLogger(__name__)
 
 
 class PostgreSQLReportStorage:
@@ -18,18 +23,20 @@ class PostgreSQLReportStorage:
         """Store contribution statistics."""
         insert_query = """
         INSERT INTO contribution_reports (
-            username, year, total_commits, total_prs, total_issues,
+            username, year, start_date, end_date, total_commits, total_prs, total_issues,
             total_discussions, total_reviews, repositories_contributed,
             languages, starred_repos, followers, following, public_repos,
             private_contributions, lines_added, lines_deleted, lines_calculation_method
         ) VALUES (
-            %(username)s, %(year)s, %(total_commits)s, %(total_prs)s,
+            %(username)s, %(year)s, %(start_date)s, %(end_date)s, %(total_commits)s, %(total_prs)s,
             %(total_issues)s, %(total_discussions)s, %(total_reviews)s,
             %(repositories_contributed)s, %(languages)s, %(starred_repos)s,
             %(followers)s, %(following)s, %(public_repos)s,
             %(private_contributions)s, %(lines_added)s, %(lines_deleted)s, %(lines_calculation_method)s
         )
         ON CONFLICT (username, year) DO UPDATE SET
+            start_date = EXCLUDED.start_date,
+            end_date = EXCLUDED.end_date,
             total_commits = EXCLUDED.total_commits,
             total_prs = EXCLUDED.total_prs,
             total_issues = EXCLUDED.total_issues,
@@ -52,6 +59,11 @@ class PostgreSQLReportStorage:
         async with self._pool.acquire() as conn, conn.cursor() as cur:
             data = asdict(stats)
             data["languages"] = json.dumps(data["languages"])
+            # Extract date range fields from the nested DateRange object
+            data["start_date"] = stats.date_range.start_date
+            data["end_date"] = stats.date_range.end_date
+            # Remove the nested date_range object since we've extracted its fields
+            data.pop("date_range", None)
             await cur.execute(insert_query, data)
             return (await cur.fetchone())[0]
 
@@ -72,22 +84,24 @@ class PostgreSQLReportStorage:
                 id=result[0],
                 username=result[1],
                 year=result[2],
-                total_commits=result[3],
-                total_prs=result[4],
-                total_issues=result[5],
-                total_discussions=result[6],
-                total_reviews=result[7],
-                repositories_contributed=result[8],
+                start_date=result[3] if result[3] else datetime(result[2], 1, 1, tzinfo=UTC),
+                end_date=result[4] if result[4] else datetime(result[2], 12, 31, 23, 59, 59, tzinfo=UTC),
+                total_commits=result[5],
+                total_prs=result[6],
+                total_issues=result[7],
+                total_discussions=result[8],
+                total_reviews=result[9],
+                repositories_contributed=result[10],
                 languages=languages,
-                starred_repos=result[10],
-                followers=result[11],
-                following=result[12],
-                public_repos=result[13],
-                private_contributions=result[14],
-                lines_added=result[15],
-                lines_deleted=result[16],
-                lines_calculation_method=result[17] if len(result) > 17 else "",
-                created_at=result[18] if len(result) > 18 else result[17],
+                starred_repos=result[12],
+                followers=result[13],
+                following=result[14],
+                public_repos=result[15],
+                private_contributions=result[16],
+                lines_added=result[17],
+                lines_deleted=result[18],
+                lines_calculation_method=result[19] if len(result) > 19 else "",
+                created_at=result[20] if len(result) > 20 else result[19] if len(result) > 19 else datetime.now(UTC),
             )
 
         return None
@@ -270,8 +284,24 @@ class DatabaseInitializer:
         );
         """
 
+        # Migration queries to add new columns if they don't exist
+        migration_queries = [
+            """
+            ALTER TABLE contribution_reports
+            ADD COLUMN IF NOT EXISTS start_date TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS end_date TIMESTAMP;
+            """,
+        ]
+
         async with self._pool.acquire() as conn, conn.cursor() as cur:
             await cur.execute(create_table_query)
+
+            # Run migrations
+            for migration in migration_queries:
+                try:
+                    await cur.execute(migration)
+                except Exception as e:
+                    logger.warning(f"Migration failed (may already be applied): {e}")
 
 
 class CompositeStorage:

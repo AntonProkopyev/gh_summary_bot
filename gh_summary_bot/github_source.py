@@ -10,6 +10,7 @@ import aiohttp
 
 from .models import Commit
 from .models import ContributionStats
+from .models import DateRange
 from .models import LineStats
 from .models import PullRequest
 from .protocols import ProgressReporter
@@ -154,11 +155,11 @@ class GitHubContributionSource:
     def with_progress_reporter(self, progress: ProgressReporter) -> "GitHubContributionSource":
         return GitHubContributionSource(self._client, progress)
 
-    async def contributions(self, username: str, year: int) -> ContributionStats:
+    async def contributions(self, username: str, date_range: DateRange) -> ContributionStats:
         await self._report_progress("Fetching contribution statistics...")
 
         async with self._client as client:
-            year_range = YearRange(year)
+            start_date, end_date = date_range.to_github_format()
 
             query = """
             query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -198,8 +199,8 @@ class GitHubContributionSource:
 
             variables = {
                 "login": username,
-                "from": year_range.from_date(),
-                "to": year_range.to_date(),
+                "from": start_date,
+                "to": end_date,
             }
 
             try:
@@ -225,10 +226,10 @@ class GitHubContributionSource:
                 await self._report_progress("Calculating line statistics...")
 
                 try:
-                    line_stats = await self._calculate_lines_from_prs(client, username, year)
+                    line_stats = await self._calculate_lines_from_prs(client, username, date_range)
                     if line_stats.pr_count == 0:
                         await self._report_progress("No PRs found, falling back to commit-based calculation...")
-                        line_stats = await self._calculate_lines_from_commits(client, username, year)
+                        line_stats = await self._calculate_lines_from_commits(client, username, date_range)
                     lines_added = line_stats.lines_added
                     lines_deleted = line_stats.lines_deleted
                     calculation_method = line_stats.calculation_method
@@ -240,7 +241,7 @@ class GitHubContributionSource:
 
                 return ContributionStats(
                     username=username,
-                    year=year,
+                    date_range=date_range,
                     total_commits=contributions["totalCommitContributions"],
                     total_prs=contributions["totalPullRequestContributions"],
                     total_issues=contributions["totalIssueContributions"],
@@ -259,12 +260,12 @@ class GitHubContributionSource:
                 )
 
             except Exception as e:
-                logger.exception(f"Error fetching contributions for {username} ({year})")
+                logger.exception(f"Error fetching contributions for {username} ({date_range.description()})")
                 raise GitHubAPIError(f"Failed to fetch contributions: {e}") from e
 
-    async def _calculate_lines_from_prs(self, client: GraphQLClient, username: str, year: int) -> LineStats:
+    async def _calculate_lines_from_prs(self, client: GraphQLClient, username: str, date_range: DateRange) -> LineStats:
         await self._report_progress("Fetching pull request data...")
-        year_range = YearRange(year)
+        start_date, end_date = date_range.to_github_format()
 
         pr_query = """
         query($login: String!, $cursor: String) {
@@ -314,18 +315,22 @@ class GitHubContributionSource:
                     await self._report_progress(f"Processed {pr_count} pull requests...")
 
                 pr_result = data["user"]["pullRequests"]
-                year_prs = []
+                range_prs = []
 
                 for pr_node in pr_result["nodes"]:
                     created_at = datetime.fromisoformat(pr_node["createdAt"])
                     merged_at = pr_node.get("mergedAt")
+                    merged_at_dt = None
+                    if merged_at:
+                        merged_at_dt = datetime.fromisoformat(merged_at)
 
-                    if created_at.year == year_range.year or (
-                        merged_at and datetime.fromisoformat(merged_at).year == year_range.year
+                    # Include PR if created or merged within the date range
+                    if (date_range.start_date <= created_at <= date_range.end_date) or (
+                        merged_at_dt and date_range.start_date <= merged_at_dt <= date_range.end_date
                     ):
-                        year_prs.append(pr_node)
+                        range_prs.append(pr_node)
 
-                for pr_node in year_prs:
+                for pr_node in range_prs:
                     total_added += pr_node["additions"] or 0
                     total_deleted += pr_node["deletions"] or 0
                     pr_count += 1
@@ -350,11 +355,13 @@ class GitHubContributionSource:
                 pr_count=0,
             )
 
-    async def _calculate_lines_from_commits(self, client: GraphQLClient, username: str, year: int) -> LineStats:
+    async def _calculate_lines_from_commits(
+        self, client: GraphQLClient, username: str, date_range: DateRange
+    ) -> LineStats:
         await self._report_progress("Calculating lines from commits...")
 
         try:
-            year_range = YearRange(year)
+            start_date, end_date = date_range.to_github_format()
 
             repos_query = """
             query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -376,8 +383,8 @@ class GitHubContributionSource:
                 repos_query,
                 {
                     "login": username,
-                    "from": year_range.from_date(),
-                    "to": year_range.to_date(),
+                    "from": start_date,
+                    "to": end_date,
                 },
             )
 
@@ -392,7 +399,7 @@ class GitHubContributionSource:
                 repo_name = repo_contrib["repository"]["name"]
                 owner_login = repo_contrib["repository"]["owner"]["login"]
 
-                repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, year_range)
+                repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, date_range)
 
                 for commit in repo_commits:
                     total_added += commit.additions
@@ -415,9 +422,9 @@ class GitHubContributionSource:
                 commit_count=0,
             )
 
-    async def commits(self, username: str, year: int) -> list[Commit]:
+    async def commits(self, username: str, date_range: DateRange) -> list[Commit]:
         async with self._client as client:
-            year_range = YearRange(year)
+            start_date, end_date = date_range.to_github_format()
 
             repos_query = """
             query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -440,8 +447,8 @@ class GitHubContributionSource:
                     repos_query,
                     {
                         "login": username,
-                        "from": year_range.from_date(),
-                        "to": year_range.to_date(),
+                        "from": start_date,
+                        "to": end_date,
                     },
                 )
 
@@ -452,10 +459,10 @@ class GitHubContributionSource:
                     repo_name = repo_contrib["repository"]["name"]
                     owner_login = repo_contrib["repository"]["owner"]["login"]
 
-                    repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, year_range)
+                    repo_commits = await self._fetch_repo_commits(client, owner_login, repo_name, user_id, date_range)
                     all_commits.extend(repo_commits)
             except Exception as e:
-                logger.exception(f"Error fetching commits for {username} ({year})")
+                logger.exception(f"Error fetching commits for {username} ({date_range.description()})")
                 raise GitHubAPIError(f"Failed to fetch commits: {e}") from e
             else:
                 return all_commits
@@ -516,7 +523,7 @@ class GitHubContributionSource:
         owner: str,
         repo: str,
         user_id: str,
-        year_range: YearRange,
+        date_range: DateRange,
     ) -> list[Commit]:
         repo_commits_query = """
         query(
@@ -564,14 +571,15 @@ class GitHubContributionSource:
 
         try:
             while True:
+                start_date, end_date = date_range.to_github_format()
                 data = await client.query(
                     repo_commits_query,
                     {
                         "owner": owner,
                         "repo": repo,
                         "user_id": user_id,
-                        "since": year_range.from_date(),
-                        "until": year_range.to_date(),
+                        "since": start_date,
+                        "until": end_date,
                         "cursor": cursor,
                     },
                 )

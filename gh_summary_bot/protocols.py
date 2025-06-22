@@ -4,14 +4,15 @@ from typing import runtime_checkable
 from .models import AllTimeStats
 from .models import CachedReport
 from .models import ContributionStats
+from .models import DateRange
 
 
 @runtime_checkable
 class GitHubSource(Protocol):
     """Protocol for GitHub data sources."""
 
-    async def contributions(self, username: str, year: int) -> ContributionStats:
-        """Fetch user contribution statistics for a specific year."""
+    async def contributions(self, username: str, date_range: DateRange) -> ContributionStats:
+        """Fetch user contribution statistics for a date range."""
         ...
 
     def with_progress_reporter(self, progress: "ProgressReporter") -> "GitHubSource":

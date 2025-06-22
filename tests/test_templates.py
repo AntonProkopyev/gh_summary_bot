@@ -5,6 +5,7 @@ import pytest
 
 from gh_summary_bot.models import AllTimeStats
 from gh_summary_bot.models import ContributionStats
+from gh_summary_bot.models import DateRange
 from gh_summary_bot.templates import ProgressMessage
 from gh_summary_bot.templates import TelegramReportTemplate
 
@@ -22,7 +23,7 @@ class TestTelegramReportTemplate:
         """Create sample ContributionStats for testing."""
         return ContributionStats(
             username="testuser",
-            year=2024,
+            date_range=DateRange.calendar_year(2024),
             total_commits=150,
             total_prs=25,
             total_issues=10,
@@ -74,7 +75,7 @@ class TestTelegramReportTemplate:
         # Check main sections are present
         assert "*GitHub Contributions Report*" in result
         assert "👤 User: `testuser`" in result
-        assert "📅 Year: 2024" in result
+        assert "📅 Period: 2024" in result
         assert "*📊 Contribution Summary*" in result
         assert "*💻 Code Statistics*" in result
         assert "*📈 Activity Metrics*" in result
@@ -115,7 +116,7 @@ class TestTelegramReportTemplate:
         """Test yearly report when no language data is available."""
         stats = ContributionStats(
             username="testuser",
-            year=2024,
+            date_range=DateRange.calendar_year(2024),
             total_commits=10,
             total_prs=2,
             total_issues=1,
@@ -130,6 +131,7 @@ class TestTelegramReportTemplate:
             private_contributions=1,
             lines_added=500,
             lines_deleted=100,
+            lines_calculation_method="pull_requests",
         )
 
         result = template.yearly(stats)

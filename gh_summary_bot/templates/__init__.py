@@ -28,7 +28,8 @@ class TelegramReportTemplate:
 
         context = {
             "username": stats.username,
-            "year": stats.year,
+            "year": stats.year,  # Keep for backward compatibility
+            "date_range": stats.date_range.description(),
             "total_contributions": total_contributions,
             "total_commits": stats.total_commits,
             "total_prs": stats.total_prs,
