@@ -100,30 +100,6 @@ class ContributionStats:
 
 
 @dataclass(frozen=True)
-class AllTimeStats:
-    username: str
-    total_years: int
-    total_commits: int
-    total_prs: int
-    total_issues: int
-    total_discussions: int
-    total_reviews: int
-    private_contributions: int
-    lines_added: int
-    lines_deleted: int
-    lines_calculation_methods: list[str]
-    first_year: int
-    last_year: int
-    repositories_contributed: int
-    starred_repos: int
-    followers: int
-    following: int
-    public_repos: int
-    languages: dict[str, int]
-    last_updated: datetime
-
-
-@dataclass(frozen=True)
 class Commit:
     oid: str
     committed_date: str
