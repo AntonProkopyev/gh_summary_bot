@@ -30,6 +30,10 @@ class GitHubSource(Protocol):
         """Calculate line statistics using pull requests method."""
         ...
 
+    def with_progress_reporter(self, progress: "ProgressReporter") -> "GitHubSource":
+        """Create new instance with progress reporter."""
+        ...
+
 
 @runtime_checkable
 class ReportStorage(Protocol):

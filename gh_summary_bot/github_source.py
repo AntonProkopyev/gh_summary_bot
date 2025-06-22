@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 
 from .models import Commit, ContributionStats, LineStats, PullRequest
+from .protocols import ProgressReporter
 
 logger = logging.getLogger(__name__)
 
@@ -148,10 +149,24 @@ class GraphQLClient:
 
 
 class GitHubContributionSource:
-    def __init__(self, client: GraphQLClient):
+    def __init__(
+        self, client: GraphQLClient, progress: Optional[ProgressReporter] = None
+    ):
         self._client = client
+        self._progress = progress
+
+    async def _report_progress(self, message: str) -> None:
+        if self._progress:
+            await self._progress.report(message)
+
+    def with_progress_reporter(
+        self, progress: ProgressReporter
+    ) -> "GitHubContributionSource":
+        return GitHubContributionSource(self._client, progress)
 
     async def contributions(self, username: str, year: int) -> ContributionStats:
+        await self._report_progress("Fetching contribution statistics...")
+
         async with self._client as client:
             year_range = YearRange(year)
 
@@ -202,6 +217,8 @@ class GitHubContributionSource:
                 user_data = data["user"]
                 contributions = user_data["contributionsCollection"]
 
+                await self._report_progress("Processing contribution data...")
+
                 languages: Dict[str, int] = {}
                 for repo_contrib in contributions["commitContributionsByRepository"]:
                     if repo_contrib["repository"]["primaryLanguage"]:
@@ -214,6 +231,8 @@ class GitHubContributionSource:
                     + contributions["totalRepositoriesWithContributedPullRequests"]
                     + contributions["totalRepositoriesWithContributedIssues"]
                 )
+
+                await self._report_progress("Calculating line statistics...")
 
                 try:
                     line_stats = await self.calculate_line_stats(username, year)
@@ -253,6 +272,8 @@ class GitHubContributionSource:
         return await self._calculate_lines_from_prs(username, year)
 
     async def _calculate_lines_from_prs(self, username: str, year: int) -> LineStats:
+        await self._report_progress("Fetching pull request data...")
+
         async with self._client as client:
             year_range = YearRange(year)
 
@@ -299,6 +320,11 @@ class GitHubContributionSource:
                             "cursor": cursor,
                         },
                     )
+
+                    if pr_count > 0 and pr_count % 100 == 0:
+                        await self._report_progress(
+                            f"Processed {pr_count} pull requests..."
+                        )
 
                     pr_result = data["user"]["pullRequests"]
                     year_prs = []
