@@ -235,7 +235,9 @@ class GitHubContributionSource:
                 await self._report_progress("Calculating line statistics...")
 
                 try:
-                    line_stats = await self._calculate_lines_from_prs(username, year)
+                    line_stats = await self._calculate_lines_from_prs(
+                        client, username, year
+                    )
                     lines_added = line_stats.lines_added
                     lines_deleted = line_stats.lines_deleted
                 except Exception as e:
@@ -268,97 +270,97 @@ class GitHubContributionSource:
                 )
                 raise GitHubAPIError(f"Failed to fetch contributions: {e}")
 
-    async def _calculate_lines_from_prs(self, username: str, year: int) -> LineStats:
+    async def _calculate_lines_from_prs(
+        self, client: GraphQLClient, username: str, year: int
+    ) -> LineStats:
         await self._report_progress("Fetching pull request data...")
+        year_range = YearRange(year)
 
-        async with self._client as client:
-            year_range = YearRange(year)
-
-            pr_query = """
-            query($login: String!, $cursor: String) {
-              user(login: $login) {
-                pullRequests(
-                  first: 100,
-                  states: [MERGED],
-                  after: $cursor,
-                  orderBy: {field: CREATED_AT, direction: DESC}
-                ) {
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                  nodes {
-                    createdAt
-                    mergedAt
-                    additions
-                    deletions
-                    baseRepository {
-                      owner {
-                        login
-                      }
-                    }
+        pr_query = """
+        query($login: String!, $cursor: String) {
+          user(login: $login) {
+            pullRequests(
+              first: 100,
+              states: [MERGED],
+              after: $cursor,
+              orderBy: {field: CREATED_AT, direction: DESC}
+            ) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              nodes {
+                createdAt
+                mergedAt
+                additions
+                deletions
+                baseRepository {
+                  owner {
+                    login
                   }
                 }
               }
             }
-            """
+          }
+        }
+        """
 
-            total_added = 0
-            total_deleted = 0
-            pr_count = 0
-            cursor = None
+        total_added = 0
+        total_deleted = 0
+        pr_count = 0
+        cursor = None
 
-            try:
-                while True:
-                    data = await client.query(
-                        pr_query,
-                        {
-                            "login": username,
-                            "cursor": cursor,
-                        },
-                    )
-
-                    if pr_count > 0 and pr_count % 100 == 0:
-                        await self._report_progress(
-                            f"Processed {pr_count} pull requests..."
-                        )
-
-                    pr_result = data["user"]["pullRequests"]
-                    year_prs = []
-
-                    for pr_node in pr_result["nodes"]:
-                        created_at = datetime.fromisoformat(
-                            pr_node["createdAt"].replace("Z", "+00:00")
-                        )
-                        merged_at = pr_node.get("mergedAt")
-
-                        if created_at.year == year_range.year or (
-                            merged_at
-                            and datetime.fromisoformat(
-                                merged_at.replace("Z", "+00:00")
-                            ).year
-                            == year_range.year
-                        ):
-                            year_prs.append(pr_node)
-
-                    for pr_node in year_prs:
-                        total_added += pr_node["additions"] or 0
-                        total_deleted += pr_node["deletions"] or 0
-                        pr_count += 1
-
-                    if not pr_result["pageInfo"]["hasNextPage"]:
-                        break
-                    cursor = pr_result["pageInfo"]["endCursor"]
-
-                return LineStats(
-                    lines_added=total_added,
-                    lines_deleted=total_deleted,
-                    pr_count=pr_count,
+        try:
+            while True:
+                data = await client.query(
+                    pr_query,
+                    {
+                        "login": username,
+                        "cursor": cursor,
+                    },
                 )
 
-            except Exception as e:
-                logger.warning(f"Failed to calculate lines from PRs: {e}")
-                return LineStats(0, 0)
+                if pr_count > 0 and pr_count % 100 == 0:
+                    await self._report_progress(
+                        f"Processed {pr_count} pull requests..."
+                    )
+
+                pr_result = data["user"]["pullRequests"]
+                year_prs = []
+
+                for pr_node in pr_result["nodes"]:
+                    created_at = datetime.fromisoformat(
+                        pr_node["createdAt"].replace("Z", "+00:00")
+                    )
+                    merged_at = pr_node.get("mergedAt")
+
+                    if created_at.year == year_range.year or (
+                        merged_at
+                        and datetime.fromisoformat(
+                            merged_at.replace("Z", "+00:00")
+                        ).year
+                        == year_range.year
+                    ):
+                        year_prs.append(pr_node)
+
+                for pr_node in year_prs:
+                    total_added += pr_node["additions"] or 0
+                    total_deleted += pr_node["deletions"] or 0
+                    pr_count += 1
+
+                if not pr_result["pageInfo"]["hasNextPage"]:
+                    break
+                cursor = pr_result["pageInfo"]["endCursor"]
+
+            return LineStats(
+                lines_added=total_added,
+                lines_deleted=total_deleted,
+                pr_count=pr_count,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate lines from PRs: {e}")
+            return LineStats(0, 0)
 
     async def commits(self, username: str, year: int) -> List[Commit]:
         async with self._client as client:
