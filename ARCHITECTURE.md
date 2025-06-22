@@ -4,63 +4,97 @@ This document provides detailed information about the internal architecture and 
 
 ## Architecture Overview
 
-The bot is built using a fully asynchronous architecture with PostgreSQL for data persistence and the Telegram Bot API for user interaction. The system is designed to handle GitHub's API rate limits gracefully while providing fast responses through intelligent caching.
+The bot is built using Elegant Objects principles with PostgreSQL for data persistence and the Telegram Bot API for user interaction. The system uses proper data structures instead of dictionaries, protocol-based interfaces, and is designed to handle GitHub's API rate limits gracefully while providing fast responses through intelligent caching.
 
 ## Core Components
 
-### GitHubGraphQLClient (`gh_summary_bot/gh_gql_client.py`)
+### GraphQLClient (`gh_summary_bot/github_source.py:72-169`)
 
-Async GitHub GraphQL client with automatic rate limit handling and pagination support. This component:
+GraphQL client for GitHub API with automatic rate limit handling. This component:
 
-- Manages GitHub API authentication
+- Manages GitHub API authentication using request configurations
 - Handles automatic rate limiting with exponential backoff
-- Provides paginated query support for large datasets
+- Provides context manager pattern for resource management
 - Implements comprehensive error handling for API failures
+- Uses `RateLimit` and `RequestConfig` models
 
-### GitHubAnalyzer (`gh_summary_bot/github_analyzer.py`)
+### GitHubContributionSource (`gh_summary_bot/github_source.py:171-447`)
 
-High-level interface for fetching comprehensive user contribution data. Features:
+GitHub contribution data source. Features:
 
-- Orchestrates complex multi-query operations
-- Aggregates data from multiple GitHub API endpoints
-- Handles user profile, repository, and contribution queries
-- Manages the relationship between cached and fresh data
+- Fetches user contribution statistics using query configurations
+- Returns `ContributionStats`, `Commit`, and `PullRequest` objects
+- Handles complex multi-query operations for commit and PR data
+- Implements proper error handling
+- Uses `YearRange` for date management
 
-### DatabaseManager (`gh_summary_bot/database.py`)
+### PostgreSQLReportStorage (`gh_summary_bot/storage.py:13-218`)
 
-Async PostgreSQL operations using aiopg connection pooling. Responsibilities:
+PostgreSQL operations using aiopg connection pooling. Responsibilities:
 
-- Manages database connection lifecycle
-- Implements CRUD operations for all data models
-- Handles database schema migrations
-- Provides transaction management for complex operations
+- Stores and retrieves `ContributionStats` objects
+- Returns `CachedReport` and `AllTimeStats` objects
+- Implements CRUD operations
+- Provides transaction-safe operations using context managers
+- Uses proper serialization/deserialization
 
-### TelegramBot (`gh_summary_bot/telegram_bot.py`)
+### TelegramBotApp (`gh_summary_bot/bot.py:219-365`)
 
-Interactive bot interface with command handlers and callback management. Includes:
+Telegram bot application. Includes:
 
-- Command routing and parameter parsing
-- Interactive button handling for detailed views
-- User session management
-- Error handling and user feedback
+- Command routing using command handlers
+- Context management for bot lifecycle
+- Proper separation of concerns with `GitHubBotCommands`
+- Error handling
 
-### ContributionStats (`gh_summary_bot/models.py`)
+### GitHubBotCommands (`gh_summary_bot/bot.py:40-217`)
 
-Data class containing all GitHub contribution statistics. This model:
+GitHub bot command implementations. Features:
 
-- Defines the structure for contribution data
-- Handles serialization/deserialization
-- Provides validation for data integrity
-- Supports multiple output formats
+- Command processing using structured data
+- Progress reporting through protocol-based interfaces
+- Returns formatted strings without side effects
+- Delegates to storage and formatting components
+
+## Data Models
+
+### ContributionStats (`gh_summary_bot/models.py:8-28`)
+GitHub contribution statistics for a specific year:
+- Contains all yearly contribution metrics
+- Used for primary data transfer
+
+### AllTimeStats (`gh_summary_bot/models.py:32-53`)
+All-time aggregated GitHub statistics:
+- Aggregates data across multiple years
+- Contains cumulative and snapshot metrics
+- Used for all-time reporting
+
+### CachedReport (`gh_summary_bot/models.py:57-77`)
+Cached contribution report data:
+- Includes database metadata (id, created_at)
+- Converts to ContributionStats for processing
+- Used for cache retrieval operations
+
+### Commit (`gh_summary_bot/models.py:81-88`)
+Commit information:
+- Contains commit metadata and line changes
+- Used for accurate line count calculations
+
+### PullRequest (`gh_summary_bot/models.py:92-97`)
+Pull request information:
+- Contains PR creation date and line changes
+- Used for PR analysis and caching
 
 ## Data Flow
 
-1. **Initialization**: Application starts and establishes async database connection pool
-2. **User Request**: Telegram user issues a command (`/analyze`, `/cached`, or `/alltime`)
-3. **Data Fetching**: GitHubAnalyzer queries GitHub GraphQL API through GitHubGraphQLClient
-4. **Caching Strategy**: DatabaseManager stores/updates reports in PostgreSQL with intelligent caching
-5. **Response Generation**: TelegramBot formats results and provides interactive buttons
-6. **Follow-up Interactions**: Users can request detailed views through callback buttons
+1. **Initialization**: Application starts and establishes database connection pool
+2. **User Request**: Telegram user issues a command (`/analyze`, `/cached`, or `/alltime`) through TelegramBotApp
+3. **Command Processing**: GitHubBotCommands processes requests using structured parameters
+4. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient
+5. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
+6. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
+7. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
+8. **Follow-up Interactions**: Users can request detailed views through callback buttons
 
 ## Database Schema
 
@@ -177,13 +211,40 @@ The application provides comprehensive logging for:
 - Error conditions and recovery actions
 - Performance metrics and query timing
 
+## Elegant Objects Compliance
+
+This codebase follows Elegant Objects principles:
+
+### Data Structures
+- All data structures are proper objects
+- No mutable state in business logic
+- Configurations and request objects are structured
+
+### No Dictionaries for Data Transfer
+- Replaced all dict usage with meaningful objects
+- Type-safe data transfer between components
+- Proper encapsulation of data structures
+
+### Protocol-Based Interfaces
+- All major components implement protocols (interfaces)
+- Dependency injection through protocol contracts
+- Testable and maintainable component boundaries
+
+### Pure Functions
+- Command handlers return values without side effects
+- Templates operate on data
+- No global state or singletons
+
 ## Development Guidelines
 
 When contributing to this project:
 
-1. **Maintain Async Patterns**: All I/O operations must be asynchronous
-2. **Handle Rate Limits**: Always consider GitHub API rate limiting
-3. **Cache Intelligently**: Implement caching for expensive operations
-4. **Validate Input**: Never trust user input without validation
-5. **Log Appropriately**: Provide meaningful logs for debugging
-6. **Test Error Paths**: Ensure error conditions are properly handled
+1. **Use Proper Objects**: Never use dictionaries for data transfer - create structured objects
+2. **Implement Protocols**: All major components must implement protocol interfaces
+3. **Handle Rate Limits**: Always consider GitHub API rate limiting
+4. **Cache Intelligently**: Implement caching using structured objects for expensive operations
+5. **Validate Input**: Never trust user input without validation
+6. **Log Appropriately**: Provide meaningful logs for debugging
+7. **Test Error Paths**: Ensure error conditions are properly handled
+8. **No Implementation Inheritance**: Favor composition and protocol implementation
+9. **Pure Functions**: Avoid side effects in business logic
