@@ -85,3 +85,12 @@ class PullRequest:
     created_at: str
     additions: int
     deletions: int
+
+
+@dataclass(frozen=True)
+class LineStats:
+    """Container for line statistics from pull requests."""
+
+    lines_added: int
+    lines_deleted: int
+    pr_count: int = 0

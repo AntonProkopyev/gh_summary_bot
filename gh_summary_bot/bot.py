@@ -26,7 +26,6 @@ class TelegramProgressReporter:
         self._year = year
 
     async def report(self, detail: str) -> None:
-        """Report progress by editing the message."""
         if self._year:
             status = f"🔍 Analyzing *{self._username}* ({self._year}): {detail}"
         else:
@@ -50,7 +49,6 @@ class GitHubBotCommands:
         self._template = template
 
     async def start_command(self, user_id: int) -> str:
-        """Handle start command and return welcome message."""
         await self._storage.users.store_user(user_id)
 
         return (
@@ -68,25 +66,15 @@ class GitHubBotCommands:
     async def analyze_command(
         self, username: str, year: int, user_id: int, progress: ProgressReporter
     ) -> str:
-        """Handle analyze command and return formatted report."""
-        # Validate year
         if year < 2008 or year > datetime.now().year:
             return f"Invalid year! Please choose between 2008 and {datetime.now().year}"
 
         try:
-            # Create progressive GitHub source with progress reporting
-            from .github_source import ProgressiveGitHubSource
+            stats = await self._github.contributions(username, year)
 
-            progressive_source = ProgressiveGitHubSource(self._github, progress)
-
-            # Fetch data from GitHub
-            stats = await progressive_source.contributions(username, year)
-
-            # Save to database
             await self._storage.reports.store(stats)
             await self._storage.users.store_user(user_id, username)
 
-            # Format and return report
             return self._template.yearly(stats)
 
         except Exception as e:
@@ -97,10 +85,8 @@ class GitHubBotCommands:
             )
 
     async def cached_command(self, username: str, year: int) -> str:
-        """Handle cached command and return cached report."""
         report = await self._storage.reports.retrieve(username, year)
         if report:
-            # Convert CachedReport to ContributionStats
             stats = ContributionStats(
                 username=report.username,
                 year=report.year,
@@ -134,13 +120,10 @@ class GitHubBotCommands:
     async def alltime_command(
         self, username: str, user_id: int, progress: ProgressReporter
     ) -> str:
-        """Handle alltime command and return aggregated report."""
         try:
-            # Get existing years from database
             existing_years = await self._storage.reports.years(username)
             current_year = datetime.now().year
 
-            # Determine which years to analyze (from 2008 to current year)
             all_years = list(range(2008, current_year + 1))
             missing_years = [year for year in all_years if year not in existing_years]
 
@@ -150,12 +133,6 @@ class GitHubBotCommands:
                     f"Analyzing {len(missing_years)} missing years: {missing_years[0]}-{missing_years[-1]}..."
                 )
 
-                # Create progressive GitHub source
-                from .github_source import ProgressiveGitHubSource
-
-                progressive_source = ProgressiveGitHubSource(self._github, progress)
-
-                # Analyze missing years
                 successful_analyses = 0
                 for i, year in enumerate(missing_years, 1):
                     try:
@@ -170,7 +147,7 @@ class GitHubBotCommands:
                             f"Year {year} ({i}/{len(missing_years)})"
                         )
 
-                        stats = await progressive_source.contributions(username, year)
+                        stats = await self._github.contributions(username, year)
                         await self._storage.reports.store(stats)
                         successful_analyses += 1
 
@@ -188,7 +165,6 @@ class GitHubBotCommands:
                     "All years already analyzed. Aggregating statistics..."
                 )
 
-            # Get aggregated data from database
             alltime_stats: Optional[
                 AllTimeStats
             ] = await self._storage.reports.aggregated(username)
@@ -199,7 +175,6 @@ class GitHubBotCommands:
                     f"The user may not exist or have no public contributions."
                 )
 
-            # Format and return report
             return self._template.alltime(alltime_stats)
 
         except Exception as e:
@@ -207,7 +182,6 @@ class GitHubBotCommands:
             return f"❌ Error retrieving all-time stats for {username}: {str(e)}"
 
     async def language_stats(self, username: str, year: int) -> str:
-        """Get language statistics for a specific user and year."""
         report = await self._storage.reports.retrieve(username, year)
         if report and report.languages:
             return self._template.languages(username, year, report.languages)
@@ -215,7 +189,6 @@ class GitHubBotCommands:
             return f"No language data available for {username} ({year})"
 
     async def year_comparison(self, username: str) -> str:
-        """Get year-over-year comparison for a user."""
         current_year = datetime.now().year
         comparison_text = f"*Year-over-Year Comparison for {username}*\n\n"
 
@@ -239,7 +212,6 @@ class TelegramBotApp:
         self._app: Optional["Application"] = None
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command."""
         if not update.effective_user or not update.message:
             return
         user_id = update.effective_user.id
@@ -247,11 +219,9 @@ class TelegramBotApp:
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command."""
         await self.start(update, context)
 
     async def analyze(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /analyze command."""
         if not update.effective_user or not update.message:
             return
         if not context.args:
@@ -265,20 +235,16 @@ class TelegramBotApp:
         year = int(context.args[1]) if len(context.args) > 1 else datetime.now().year
         user_id = update.effective_user.id
 
-        # Send loading message
         loading_msg = await update.message.reply_text(
             f"🔍 Analyzing contributions for *{username}* in {year}...",
             parse_mode="Markdown",
         )
 
-        # Create progress reporter
         progress = TelegramProgressReporter(loading_msg, username, year)
 
-        # Analyze and get report
         report = await self._commands.analyze_command(username, year, user_id, progress)
         await loading_msg.edit_text(report, parse_mode="Markdown")
 
-        # Add inline keyboard for actions
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -296,7 +262,6 @@ class TelegramBotApp:
         )
 
     async def cached(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cached command."""
         if not update.message:
             return
         if not context.args or len(context.args) < 2:
@@ -312,7 +277,6 @@ class TelegramBotApp:
         await update.message.reply_text(report, parse_mode="Markdown")
 
     async def alltime(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /alltime command."""
         if not update.effective_user or not update.message:
             return
         if not context.args:
@@ -325,21 +289,17 @@ class TelegramBotApp:
         username = context.args[0]
         user_id = update.effective_user.id
 
-        # Send loading message
         loading_msg = await update.message.reply_text(
             f"🔍 Checking all-time statistics for *{username}*...",
             parse_mode="Markdown",
         )
 
-        # Create progress reporter
         progress = TelegramProgressReporter(loading_msg, username)
 
-        # Get all-time report
         report = await self._commands.alltime_command(username, user_id, progress)
         await loading_msg.edit_text(report, parse_mode="Markdown")
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle inline button callbacks."""
         query = update.callback_query
         if not query or not query.data or not query.message:
             return
@@ -362,11 +322,9 @@ class TelegramBotApp:
                 await query.message.reply_text(comparison_text, parse_mode="Markdown")
 
     async def run(self):
-        """Start the Telegram bot."""
         self._app = Application.builder().token(self._token).build()
         assert self._app is not None  # Help mypy understand _app is not None
 
-        # Add handlers
         self._app.add_handler(CommandHandler("start", self.start))
         self._app.add_handler(CommandHandler("help", self.help))
         self._app.add_handler(CommandHandler("analyze", self.analyze))
@@ -374,14 +332,12 @@ class TelegramBotApp:
         self._app.add_handler(CommandHandler("cached", self.cached))
         self._app.add_handler(CallbackQueryHandler(self.button_callback))
 
-        # Initialize and start polling
         logger.info("Starting Telegram bot...")
         await self._app.initialize()
         await self._app.start()
         if self._app.updater:
             await self._app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
-        # Keep the bot running
         try:
             await asyncio.Event().wait()
         except KeyboardInterrupt:

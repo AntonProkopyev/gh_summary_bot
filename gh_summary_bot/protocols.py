@@ -1,6 +1,13 @@
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
-from .models import AllTimeStats, CachedReport, Commit, ContributionStats, PullRequest
+from .models import (
+    AllTimeStats,
+    CachedReport,
+    Commit,
+    ContributionStats,
+    LineStats,
+    PullRequest,
+)
 
 
 @runtime_checkable
@@ -17,6 +24,10 @@ class GitHubSource(Protocol):
 
     async def pull_requests(self, username: str) -> List[PullRequest]:
         """Fetch all pull requests for a user."""
+        ...
+
+    async def calculate_line_stats(self, username: str, year: int) -> LineStats:
+        """Calculate line statistics using pull requests method."""
         ...
 
 
