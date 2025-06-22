@@ -61,43 +61,40 @@ GitHub bot command implementations. Features:
 
 ## Data Models
 
-### ContributionStats (`gh_summary_bot/models.py:8-28`)
-GitHub contribution statistics for a specific year:
-- Contains all yearly contribution metrics
+### ContributionStats (`gh_summary_bot/models.py:77-102`)
+GitHub contribution statistics for flexible date ranges:
+- Contains all contribution metrics for specified date range
+- Supports last 12 months, calendar years, and custom date ranges
 - Used for primary data transfer
 
-### AllTimeStats (`gh_summary_bot/models.py:105-126`)
-All-time aggregated GitHub statistics (legacy, unused):
-- Previously used for multi-year aggregation
-- Kept for backward compatibility
 
-### Commit (`gh_summary_bot/models.py:81-88`)
+### Commit (`gh_summary_bot/models.py:103-109`)
 Commit information:
 - Contains commit metadata and line changes
 - Used for accurate line count calculations
 
-### PullRequest (`gh_summary_bot/models.py:92-97`)
+### PullRequest (`gh_summary_bot/models.py:111-116`)
 Pull request information:
 - Contains PR creation date and line changes
-- Used for PR analysis and caching
+- Used for PR analysis and line calculations
 
-### LineStats (`gh_summary_bot/models.py:90-96`)
+### LineStats (`gh_summary_bot/models.py:118-124`)
 Line statistics container:
-- Contains lines added/deleted counts and PR count
+- Contains lines added/deleted counts and calculation method tracking
 - Used internally for line calculation from pull requests
 - Provides fallback data when line calculation fails
 
 ## Data Flow
 
 1. **Initialization**: Application starts and establishes database connection pool for user telemetry
-2. **User Request**: Telegram user issues a command (`/analyze`) through TelegramBotApp with flexible date options
-3. **Command Processing**: GitHubBotCommands parses date arguments into DateRange objects and validates input
+2. **User Request**: Telegram user issues `/analyze` command with flexible date options: username only (last 12 months), year, or custom date range
+3. **Command Processing**: GitHubBotCommands parses date arguments into DateRange objects with support for last 12 months, years, and custom ranges
 4. **Progress Setup**: GitHubBotCommands creates progress-enabled GitHubContributionSource using `with_progress_reporter`
 5. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient with real-time progress updates
 6. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data with fallback
 7. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
 8. **Telemetry**: PostgreSQLUserStorage tracks user interactions for analytics
-9. **Response Generation**: TelegramReportTemplate formats fresh results showing actual date ranges and calculation methods
+9. **Response Generation**: TelegramReportTemplate formats results using yearly report template with date range descriptions
 10. **Real-time Data**: Every analysis fetches fresh data from GitHub API
 
 ## Database Schema
