@@ -1,4 +1,4 @@
-# GitHub Contribution Analyzer Bot
+# GitHub Contribution Summary Bot
 
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -7,12 +7,12 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![GitHub API](https://img.shields.io/badge/GitHub%20API-v4%20GraphQL-181717?logo=github)](https://docs.github.com/en/graphql)
 
-A sophisticated Telegram bot that analyzes GitHub user contributions using the GraphQL API and provides detailed analytics through a clean chat interface.
+A sophisticated Telegram bot that provides GitHub user contribution summaries using the GraphQL API through a clean chat interface.
 
 ## Features
 
-- **Comprehensive GitHub Analysis**: Fetches detailed contribution data including commits, PRs, issues, discussions, stars, forks, and more
-- **Flexible Date Ranges**: Analyze last 12 months, specific years, or custom date ranges
+- **Comprehensive GitHub Summaries**: Fetches detailed contribution data including commits, PRs, issues, discussions, stars, forks, and more
+- **Flexible Date Ranges**: Support for last 12 months, specific years, or custom date ranges
 - **Telegram Bot Interface**: Clean and easy-to-use chat interface
 - **Async Architecture**: Fully asynchronous implementation for optimal performance
 - **Rate Limit Handling**: Intelligent GitHub API rate limit management
@@ -73,9 +73,9 @@ python -m gh_summary_bot
 
 - `/start` - Welcome message and help
 - `/help` - Show available commands
-- `/analyze username` - Analyze last 12 months (default)
-- `/analyze username year` - Analyze specific year (e.g., 2024)
-- `/analyze username start-date end-date` - Custom date range (YYYY-MM-DD format)
+- `/analyze username` - Summary for last 12 months (default)
+- `/analyze username year` - Summary for specific year (e.g., 2024)
+- `/analyze username start-date end-date` - Summary for custom date range (YYYY-MM-DD format)
 
 ### Examples
 
@@ -87,7 +87,7 @@ python -m gh_summary_bot
 
 ### Features
 
-- **Real-time Analysis**: Fresh data from GitHub API for every request
+- **Real-time Summaries**: Fresh data from GitHub API for every request
 - **Multiple Date Formats**: Flexible date range options
 - **Line Statistics**: Tracks lines added/deleted with fallback calculation methods
 

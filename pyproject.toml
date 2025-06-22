@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gh-summary-bot"
 version = "0.1.0"
-description = "GitHub contribution analyzer with PostgreSQL storage and Telegram bot interface"
+description = "GitHub contribution summary bot with PostgreSQL storage and Telegram bot interface"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

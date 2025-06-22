@@ -1,10 +1,10 @@
 # Architecture Documentation
 
-This document provides detailed information about the internal architecture and implementation details of the GitHub Contribution Analyzer Bot.
+This document provides detailed information about the internal architecture and implementation details of the GitHub Contribution Summary Bot.
 
 ## Architecture Overview
 
-The bot is built using Elegant Objects principles with PostgreSQL for user telemetry and the Telegram Bot API for user interaction. The system uses proper data structures instead of dictionaries, protocol-based interfaces, and is designed to handle GitHub's API rate limits gracefully while providing real-time GitHub data analysis.
+The bot is built using Elegant Objects principles with PostgreSQL for user telemetry and the Telegram Bot API for user interaction. The system uses proper data structures instead of dictionaries, protocol-based interfaces, and is designed to handle GitHub's API rate limits gracefully while providing real-time GitHub data summaries.
 
 ## Core Components
 
@@ -95,7 +95,7 @@ Line statistics container:
 7. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
 8. **Telemetry**: PostgreSQLUserStorage tracks user interactions for analytics
 9. **Response Generation**: TelegramReportTemplate formats results using yearly report template with date range descriptions
-10. **Real-time Data**: Every analysis fetches fresh data from GitHub API
+10. **Real-time Data**: Every summary fetches fresh data from GitHub API
 
 ## Database Schema
 
@@ -153,7 +153,7 @@ stats = await progress_source.contributions(username, year)
 
 ## Performance Optimizations
 
-### Real-time Analysis
+### Real-time Summaries
 
 - **Fresh Data**: Every request fetches current data from GitHub API
 - **No Stale Cache**: Users always get up-to-date contribution statistics
