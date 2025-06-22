@@ -1,15 +1,17 @@
 import json
 from dataclasses import asdict
-from typing import List, Optional
 
 import aiopg
 
-from .models import AllTimeStats, CachedReport, ContributionStats
-from .protocols import ReportStorage, UserStorage
+from .models import AllTimeStats
+from .models import CachedReport
+from .models import ContributionStats
+from .protocols import ReportStorage
+from .protocols import UserStorage
 
 
 class PostgreSQLReportStorage:
-    def __init__(self, pool: aiopg.Pool):
+    def __init__(self, pool: aiopg.Pool) -> None:
         self._pool = pool
 
     async def store(self, stats: ContributionStats) -> int:
@@ -46,26 +48,22 @@ class PostgreSQLReportStorage:
         RETURNING id;
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                data = asdict(stats)
-                data["languages"] = json.dumps(data["languages"])
-                await cur.execute(insert_query, data)
-                report_id = (await cur.fetchone())[0]
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            data = asdict(stats)
+            data["languages"] = json.dumps(data["languages"])
+            await cur.execute(insert_query, data)
+            return (await cur.fetchone())[0]
 
-        return report_id
-
-    async def retrieve(self, username: str, year: int) -> Optional[CachedReport]:
+    async def retrieve(self, username: str, year: int) -> CachedReport | None:
         """Retrieve stored contribution report."""
         query = """
         SELECT * FROM contribution_reports
         WHERE username = %s AND year = %s
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (username, year))
-                result = await cur.fetchone()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(query, (username, year))
+            result = await cur.fetchone()
 
         if result:
             languages = result[9] if result[9] else {}
@@ -92,11 +90,11 @@ class PostgreSQLReportStorage:
 
         return None
 
-    async def aggregated(self, username: str) -> Optional[AllTimeStats]:
+    async def aggregated(self, username: str) -> AllTimeStats | None:
         """Retrieve aggregated all-time statistics."""
         # Get cumulative stats
         cumulative_query = """
-        SELECT 
+        SELECT
             username,
             COUNT(*) as total_years,
             SUM(total_commits) as total_commits,
@@ -110,37 +108,36 @@ class PostgreSQLReportStorage:
             MIN(year) as first_year,
             MAX(year) as last_year,
             MAX(created_at) as last_updated
-        FROM contribution_reports 
+        FROM contribution_reports
         WHERE username = %s
         GROUP BY username
         """
 
         # Get latest snapshot values from the most recent year
         snapshot_query = """
-        SELECT 
+        SELECT
             repositories_contributed,
-            starred_repos, 
-            followers, 
-            following, 
+            starred_repos,
+            followers,
+            following,
             public_repos
-        FROM contribution_reports 
-        WHERE username = %s 
-        ORDER BY year DESC 
+        FROM contribution_reports
+        WHERE username = %s
+        ORDER BY year DESC
         LIMIT 1
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                # Get cumulative stats
-                await cur.execute(cumulative_query, (username,))
-                cumulative_result = await cur.fetchone()
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            # Get cumulative stats
+            await cur.execute(cumulative_query, (username,))
+            cumulative_result = await cur.fetchone()
 
-                if not cumulative_result:
-                    return None
+            if not cumulative_result:
+                return None
 
-                # Get snapshot stats from latest year
-                await cur.execute(snapshot_query, (username,))
-                snapshot_result = await cur.fetchone()
+            # Get snapshot stats from latest year
+            await cur.execute(snapshot_query, (username,))
+            snapshot_result = await cur.fetchone()
 
         if cumulative_result and snapshot_result:
             # Get aggregated language statistics
@@ -185,44 +182,43 @@ class PostgreSQLReportStorage:
 
         return None
 
-    async def years(self, username: str) -> List[int]:
+    async def years(self, username: str) -> list[int]:
         """Get years with existing reports for a user."""
         query = """
-        SELECT year FROM contribution_reports 
-        WHERE username = %s 
+        SELECT year FROM contribution_reports
+        WHERE username = %s
         ORDER BY year
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (username,))
-                results = await cur.fetchall()
-                return [row[0] for row in results] if results else []
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(query, (username,))
+            results = await cur.fetchall()
+            return [row[0] for row in results] if results else []
 
 
 class PostgreSQLUserStorage:
-    def __init__(self, pool: aiopg.Pool):
+    def __init__(self, pool: aiopg.Pool) -> None:
         self._pool = pool
 
-    async def store_user(
-        self, telegram_id: int, github_username: Optional[str] = None
-    ) -> None:
+    async def store_user(self, telegram_id: int, github_username: str | None = None) -> None:
         """Store telegram user association."""
         query = """
         INSERT INTO telegram_users (telegram_id, github_username, last_query)
         VALUES (%s, %s, CURRENT_TIMESTAMP)
         ON CONFLICT (telegram_id) DO UPDATE SET
-            github_username = COALESCE(EXCLUDED.github_username, telegram_users.github_username),
+            github_username = COALESCE(
+                EXCLUDED.github_username,
+                telegram_users.github_username
+            ),
             last_query = CURRENT_TIMESTAMP
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (telegram_id, github_username))
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(query, (telegram_id, github_username))
 
 
 class DatabaseInitializer:
-    def __init__(self, pool: aiopg.Pool):
+    def __init__(self, pool: aiopg.Pool) -> None:
         self._pool = pool
 
     async def initialize_tables(self) -> None:
@@ -249,7 +245,7 @@ class DatabaseInitializer:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(username, year)
         );
-        
+
         CREATE TABLE IF NOT EXISTS telegram_users (
             id SERIAL PRIMARY KEY,
             telegram_id BIGINT UNIQUE NOT NULL,
@@ -259,9 +255,8 @@ class DatabaseInitializer:
         );
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(create_table_query)
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(create_table_query)
 
 
 class CompositeStorage:
@@ -271,7 +266,7 @@ class CompositeStorage:
         self,
         report_storage: ReportStorage,
         user_storage: UserStorage,
-    ):
+    ) -> None:
         self._report_storage = report_storage
         self._user_storage = user_storage
 

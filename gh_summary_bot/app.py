@@ -1,31 +1,29 @@
 import asyncio
 import logging
 import os
-from typing import Optional
 
 import aiopg
 from dotenv import load_dotenv
 
-from .bot import GitHubBotCommands, TelegramBotApp
+from .bot import GitHubBotCommands
+from .bot import TelegramBotApp
+from .github_source import GitHubContributionSource
+from .github_source import GraphQLClient
+from .github_source import RequestConfig
+from .storage import CompositeStorage
+from .storage import DatabaseInitializer
+from .storage import PostgreSQLReportStorage
+from .storage import PostgreSQLUserStorage
 from .templates import TelegramReportTemplate
-from .github_source import GitHubContributionSource, GraphQLClient, RequestConfig
-from .storage import (
-    CompositeStorage,
-    DatabaseInitializer,
-    PostgreSQLReportStorage,
-    PostgreSQLUserStorage,
-)
 
 load_dotenv()
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class ApplicationConfig:
-    def __init__(self):
+    def __init__(self) -> None:
         self.github_token: str = os.environ["GITHUB_TOKEN"]
         self.telegram_token: str = os.environ["TELEGRAM_TOKEN"]
         self.database_url: str = os.environ["DATABASE_URL"]
@@ -45,9 +43,9 @@ class ApplicationConfig:
 class DatabasePool:
     """Database connection pool wrapper."""
 
-    def __init__(self, database_url: str):
+    def __init__(self, database_url: str) -> None:
         self._database_url = database_url
-        self._pool: Optional[aiopg.Pool] = None
+        self._pool: aiopg.Pool | None = None
 
     async def initialize(self) -> aiopg.Pool:
         """Initialize and return connection pool."""
@@ -68,7 +66,7 @@ class DatabasePool:
 
 
 class Application:
-    def __init__(self, config: ApplicationConfig):
+    def __init__(self, config: ApplicationConfig) -> None:
         self._config = config
 
     async def run(self) -> None:
@@ -98,14 +96,14 @@ class Application:
 
         except KeyboardInterrupt:
             logger.info("Application stopped by user")
-        except Exception as e:
-            logger.error(f"Application error: {e}")
+        except Exception:
+            logger.exception("Application error")
         finally:
             if db_pool_wrapper:
                 await db_pool_wrapper.close()
 
 
-async def main():
+async def main() -> None:
     config = ApplicationConfig()
     app = Application(config)
     await app.run()

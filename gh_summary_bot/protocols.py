@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional, Protocol, runtime_checkable
+from typing import Protocol
+from typing import runtime_checkable
 
-from .models import (
-    AllTimeStats,
-    CachedReport,
-    ContributionStats,
-)
+from .models import AllTimeStats
+from .models import CachedReport
+from .models import ContributionStats
 
 
 @runtime_checkable
@@ -28,15 +27,15 @@ class ReportStorage(Protocol):
         """Store contribution statistics."""
         ...
 
-    async def retrieve(self, username: str, year: int) -> Optional[CachedReport]:
+    async def retrieve(self, username: str, year: int) -> CachedReport | None:
         """Retrieve stored contribution report."""
         ...
 
-    async def aggregated(self, username: str) -> Optional[AllTimeStats]:
+    async def aggregated(self, username: str) -> AllTimeStats | None:
         """Retrieve aggregated all-time statistics."""
         ...
 
-    async def years(self, username: str) -> List[int]:
+    async def years(self, username: str) -> list[int]:
         """Get years with existing reports for a user."""
         ...
 
@@ -45,9 +44,7 @@ class ReportStorage(Protocol):
 class UserStorage(Protocol):
     """Protocol for storing user data."""
 
-    async def store_user(
-        self, telegram_id: int, github_username: Optional[str] = None
-    ) -> None:
+    async def store_user(self, telegram_id: int, github_username: str | None = None) -> None:
         """Store telegram user association."""
         ...
 
@@ -85,7 +82,7 @@ class ReportTemplate(Protocol):
         """Generate all-time aggregated statistics."""
         ...
 
-    def languages(self, username: str, year: int, languages: Dict[str, int]) -> str:
+    def languages(self, username: str, year: int, languages: dict[str, int]) -> str:
         """Generate language statistics."""
         ...
 

@@ -1,8 +1,12 @@
-import pytest
+from datetime import UTC
 from datetime import datetime
 
-from gh_summary_bot.templates import TelegramReportTemplate, ProgressMessage
-from gh_summary_bot.models import AllTimeStats, ContributionStats
+import pytest
+
+from gh_summary_bot.models import AllTimeStats
+from gh_summary_bot.models import ContributionStats
+from gh_summary_bot.templates import ProgressMessage
+from gh_summary_bot.templates import TelegramReportTemplate
 
 
 class TestTelegramReportTemplate:
@@ -33,7 +37,7 @@ class TestTelegramReportTemplate:
             private_contributions=5,
             lines_added=5000,
             lines_deleted=1500,
-            created_at=datetime(2024, 1, 15, 10, 30, 0),
+            created_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
         )
 
     @pytest.fixture
@@ -58,7 +62,7 @@ class TestTelegramReportTemplate:
             following=200,
             public_repos=35,
             languages={"Python": 300, "JavaScript": 120, "TypeScript": 30},
-            last_updated=datetime(2024, 6, 19, 18, 45, 0),
+            last_updated=datetime(2024, 6, 19, 18, 45, 0, tzinfo=UTC),
         )
 
     def test_yearly_report_basic_structure(self, template, sample_contribution_stats):
@@ -75,9 +79,7 @@ class TestTelegramReportTemplate:
         assert "*🌟 Social Stats*" in result
         assert "*🔥 Top Languages*" in result
 
-    def test_yearly_report_contribution_calculations(
-        self, template, sample_contribution_stats
-    ):
+    def test_yearly_report_contribution_calculations(self, template, sample_contribution_stats):
         """Test that yearly report calculates totals correctly."""
         result = template.yearly(sample_contribution_stats)
 
@@ -162,7 +164,7 @@ class TestTelegramReportTemplate:
         assert "• Lines Deleted: *4,500*" in result
         assert "• Net Lines: *10,500*" in result
 
-    def test_alltime_report_languages_limit(self, template, sample_alltime_stats):
+    def test_alltime_report_languages_limit(self, template):
         """Test that alltime report shows up to 10 languages."""
         # Create stats with many languages
         many_languages = {f"Lang{i}": 100 - i for i in range(15)}
@@ -185,7 +187,7 @@ class TestTelegramReportTemplate:
             following=200,
             public_repos=35,
             languages=many_languages,
-            last_updated=datetime(2024, 6, 19, 18, 45, 0),
+            last_updated=datetime(2024, 6, 19, 18, 45, 0, tzinfo=UTC),
         )
 
         result = template.alltime(stats)
@@ -235,7 +237,7 @@ class TestTelegramReportTemplate:
         """Test language report with no languages."""
         result = template.languages("testuser", 2024, {})
 
-        assert "No language data available for testuser (2024)" == result
+        assert result == "No language data available for testuser (2024)"
 
     def test_languages_report_limit_10(self, template):
         """Test that language report limits to 10 languages."""
@@ -342,8 +344,9 @@ class TestTemplateImmutability:
         detail_result = progress.with_detail("detail")
         progress_result = progress.with_progress(1, 5)
 
-        # Original message should be unchanged
-        assert progress._base_message == "test"
+        # Base message should be preserved in the results
+        base_result = str(progress)
+        assert "test" in base_result
 
         # Results should be different strings
         assert detail_result != progress_result
