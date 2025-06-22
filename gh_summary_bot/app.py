@@ -10,9 +10,7 @@ from .bot import TelegramBotApp
 from .github_source import GitHubContributionSource
 from .github_source import GraphQLClient
 from .github_source import RequestConfig
-from .storage import CompositeStorage
 from .storage import DatabaseInitializer
-from .storage import PostgreSQLReportStorage
 from .storage import PostgreSQLUserStorage
 from .templates import TelegramReportTemplate
 
@@ -79,10 +77,7 @@ class Application:
 
             db_pool_wrapper = DatabasePool(self._config.database_url)
             pool = await db_pool_wrapper.initialize()
-            storage = CompositeStorage(
-                PostgreSQLReportStorage(pool),
-                PostgreSQLUserStorage(pool),
-            )
+            user_storage = PostgreSQLUserStorage(pool)
             github_config = RequestConfig(
                 base_url="https://api.github.com/graphql",
                 token=self._config.github_token,
@@ -90,7 +85,7 @@ class Application:
             client = GraphQLClient(github_config)
             github_source = GitHubContributionSource(client)
             template = TelegramReportTemplate()
-            bot_commands = GitHubBotCommands(github_source, storage, template)
+            bot_commands = GitHubBotCommands(github_source, user_storage, template)
             bot = TelegramBotApp(self._config.telegram_token, bot_commands)
             await bot.run()
 

@@ -7,6 +7,7 @@ import pytest
 from gh_summary_bot.github_source import GitHubContributionSource
 from gh_summary_bot.github_source import GraphQLClient
 from gh_summary_bot.models import ContributionStats
+from gh_summary_bot.models import DateRange
 from gh_summary_bot.models import PullRequest
 
 
@@ -102,7 +103,7 @@ class TestGitHubSourceLineCalculation:
         # Set up the mock response
         mock_client.query.return_value = mock_contributions_data
 
-        result = await github_source.contributions("testuser", 2024)
+        result = await github_source.contributions("testuser", DateRange.calendar_year(2024))
 
         assert isinstance(result, ContributionStats)
         assert result.username == "testuser"

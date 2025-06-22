@@ -8,20 +8,14 @@ from typing import Any
 if TYPE_CHECKING:
     from telegram.ext import Application
 
-from telegram import InlineKeyboardButton
-from telegram import InlineKeyboardMarkup
-from telegram import Message
 from telegram import Update
 from telegram.ext import Application
-from telegram.ext import CallbackQueryHandler
 from telegram.ext import CommandHandler
 from telegram.ext import ContextTypes
 
-from .models import AllTimeStats
-from .models import ContributionStats
 from .models import DateRange
 from .protocols import GitHubSource
-from .storage import CompositeStorage
+from .storage import PostgreSQLUserStorage
 from .templates import TelegramReportTemplate
 
 logger = logging.getLogger(__name__)
@@ -55,15 +49,15 @@ class GitHubBotCommands:
     def __init__(
         self,
         github_source: GitHubSource,
-        storage: CompositeStorage,
+        user_storage: PostgreSQLUserStorage,
         template: TelegramReportTemplate,
     ) -> None:
         self._github = github_source
-        self._storage = storage
+        self._user_storage = user_storage
         self._template = template
 
     async def start_command(self, user_id: int) -> str:
-        await self._storage.users.store_user(user_id)
+        await self._user_storage.store_user(user_id)
 
         return (
             "🚀 *GitHub Contribution Analyzer Bot*\n\n"
@@ -72,8 +66,6 @@ class GitHubBotCommands:
             "/analyze `username` - Analyze last 12 months (default)\n"
             "/analyze `username` `year` - Analyze specific year\n"
             "/analyze `username` `start-date` `end-date` - Custom date range\n"
-            "/alltime `username` - Get all-time aggregated stats\n"
-            "/cached `username` `identifier` - Get cached report\n"
             "/help - Show this help message\n\n"
             "*Examples:*\n"
             "• `/analyze torvalds` - Last 12 months\n"
@@ -116,118 +108,13 @@ class GitHubBotCommands:
             github_with_progress = self._github.with_progress_reporter(progress)
             stats = await github_with_progress.contributions(username, date_range)
 
-            await self._storage.reports.store(stats)
-            await self._storage.users.store_user(user_id, username)
+            await self._user_storage.store_user(user_id, username)
 
             return self._template.yearly(stats)
 
         except Exception as e:
             logger.exception(f"Error analyzing {username}")
             return f"❌ Error analyzing {username}: {e!s}\nMake sure the username is correct and try again."
-
-    async def cached_command(self, username: str, year: int) -> str:
-        report = await self._storage.reports.retrieve(username, year)
-        if report:
-            stats = ContributionStats(
-                username=report.username,
-                date_range=report.date_range,
-                total_commits=report.total_commits,
-                total_prs=report.total_prs,
-                total_issues=report.total_issues,
-                total_discussions=report.total_discussions,
-                total_reviews=report.total_reviews,
-                repositories_contributed=report.repositories_contributed,
-                languages=report.languages,
-                starred_repos=report.starred_repos,
-                followers=report.followers,
-                following=report.following,
-                public_repos=report.public_repos,
-                private_contributions=report.private_contributions,
-                lines_added=report.lines_added,
-                lines_deleted=report.lines_deleted,
-                lines_calculation_method=report.lines_calculation_method,
-                created_at=report.created_at,
-            )
-            formatted = self._template.yearly(stats)
-            cached_time = report.created_at.strftime("%Y-%m-%d %H:%M UTC")
-            return f"{formatted}\n\n_📅 Cached report from {cached_time}_"
-        return f"No cached report found for {username} in {year}.\nUse `/analyze {username} {year}` to generate one."
-
-    async def alltime_command(self, username: str, user_id: int, progress: TelegramProgressReporter) -> str:
-        try:
-            existing_years = await self._storage.reports.years(username)
-            current_year = datetime.now(UTC).year
-
-            all_years = list(range(2008, current_year + 1))
-            missing_years = [year for year in all_years if year not in existing_years]
-
-            if missing_years:
-                year_range = f"{missing_years[0]}-{missing_years[-1]}"
-                await progress.report(
-                    f"Found {len(existing_years)} existing reports. "
-                    f"Analyzing {len(missing_years)} missing years: {year_range}..."
-                )
-
-                successful_analyses = 0
-                for i, year in enumerate(missing_years, 1):
-                    try:
-                        year_progress = progress.for_year(year)
-                        await year_progress.report(f"Year {year} ({i}/{len(missing_years)})")
-
-                        github_with_progress = self._github.with_progress_reporter(year_progress)
-                        date_range = DateRange.calendar_year(year)
-                        stats = await github_with_progress.contributions(username, date_range)
-                        await self._storage.reports.store(stats)
-                        successful_analyses += 1
-
-                    except Exception as e:
-                        logger.warning(f"Failed to analyze {username} for {year}: {e}")
-                        continue
-
-                if successful_analyses > 0:
-                    message = (
-                        f"Successfully analyzed {successful_analyses} additional years. Generating all-time report..."
-                    )
-                    await progress.report(message)
-                    await self._storage.users.store_user(user_id, username)
-            else:
-                await progress.report("All years already analyzed. Aggregating statistics...")
-
-            alltime_stats: AllTimeStats | None = await self._storage.reports.aggregated(username)
-
-            if not alltime_stats:
-                return (
-                    f"❌ No data could be retrieved for {username}.\n"
-                    f"The user may not exist or have no public contributions."
-                )
-
-            return self._template.alltime(alltime_stats)
-
-        except Exception as e:
-            logger.exception(f"Error getting all-time stats for {username}")
-            return f"❌ Error retrieving all-time stats for {username}: {e!s}"
-
-    async def language_stats(self, username: str, year: int) -> str:
-        report = await self._storage.reports.retrieve(username, year)
-        if report and report.languages:
-            return self._template.languages(username, year, report.languages)
-        return f"No language data available for {username} ({year})"
-
-    async def year_comparison(self, username: str) -> str:
-        current_year = datetime.now(UTC).year
-        comparison_text = f"*Year-over-Year Comparison for {username}*\n\n"
-
-        for year in range(current_year - 2, current_year + 1):
-            report = await self._storage.reports.retrieve(username, year)
-            if report:
-                comparison_text += (
-                    f"*{year}:*\n"
-                    f"• Commits: {report.total_commits}\n"
-                    f"• PRs: {report.total_prs}\n"
-                    f"• Issues: {report.total_issues}\n\n"
-                )
-
-        return comparison_text
 
 
 class TelegramBotApp:
@@ -275,76 +162,6 @@ class TelegramBotApp:
         report = await self._commands.analyze_command(username, date_range, user_id, progress)
         await loading_msg.edit_text(report, parse_mode="Markdown")
 
-        # Create simplified callback data for the date range
-        range_id = f"{date_range.start_date.strftime('%Y%m%d')}_{date_range.end_date.strftime('%Y%m%d')}"
-        keyboard = [
-            [
-                InlineKeyboardButton("📊 Language Stats", callback_data=f"lang_{username}_{range_id}"),
-                InlineKeyboardButton("📈 Compare Years", callback_data=f"compare_{username}"),
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text("Select an option for more details:", reply_markup=reply_markup)
-
-    async def cached(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.message:
-            return
-        if not context.args or len(context.args) < 2:
-            await update.message.reply_text("Usage: `/cached username year`", parse_mode="Markdown")
-            return
-
-        username = context.args[0]
-        year = int(context.args[1])
-
-        report = await self._commands.cached_command(username, year)
-        await update.message.reply_text(report, parse_mode="Markdown")
-
-    async def alltime(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.effective_user or not update.message:
-            return
-        if not context.args:
-            await update.message.reply_text(
-                "Please provide a GitHub username!\nUsage: `/alltime username`",
-                parse_mode="Markdown",
-            )
-            return
-
-        username = context.args[0]
-        user_id = update.effective_user.id
-
-        loading_msg = await update.message.reply_text(
-            f"🔍 Checking all-time statistics for *{username}*...",
-            parse_mode="Markdown",
-        )
-
-        progress = TelegramProgressReporter(loading_msg, username)
-
-        report = await self._commands.alltime_command(username, user_id, progress)
-        await loading_msg.edit_text(report, parse_mode="Markdown")
-
-    async def button_callback(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-        query = update.callback_query
-        if not query or not query.data or not query.message:
-            return
-        await query.answer()
-
-        data = query.data.split("_")
-        action = data[0]
-
-        if action == "lang":
-            username = data[1]
-            year = int(data[2])
-            lang_text = await self._commands.language_stats(username, year)
-            if isinstance(query.message, Message):
-                await query.message.reply_text(lang_text, parse_mode="Markdown")
-
-        elif action == "compare":
-            username = data[1]
-            comparison_text = await self._commands.year_comparison(username)
-            if isinstance(query.message, Message):
-                await query.message.reply_text(comparison_text, parse_mode="Markdown")
-
     async def run(self) -> None:
         self._app = Application.builder().token(self._token).build()
         assert self._app is not None  # Help mypy understand _app is not None
@@ -352,9 +169,6 @@ class TelegramBotApp:
         self._app.add_handler(CommandHandler("start", self.start))
         self._app.add_handler(CommandHandler("help", self.help))
         self._app.add_handler(CommandHandler("analyze", self.analyze))
-        self._app.add_handler(CommandHandler("alltime", self.alltime))
-        self._app.add_handler(CommandHandler("cached", self.cached))
-        self._app.add_handler(CallbackQueryHandler(self.button_callback))
 
         logger.info("Starting Telegram bot...")
         await self._app.initialize()

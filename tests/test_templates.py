@@ -309,7 +309,7 @@ class TestTemplateImmutability:
 
         stats = ContributionStats(
             username="testuser",
-            year=2024,
+            date_range=DateRange.calendar_year(2024),
             total_commits=10,
             total_prs=2,
             total_issues=1,

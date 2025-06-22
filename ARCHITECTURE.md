@@ -4,7 +4,7 @@ This document provides detailed information about the internal architecture and 
 
 ## Architecture Overview
 
-The bot is built using Elegant Objects principles with PostgreSQL for data persistence and the Telegram Bot API for user interaction. The system uses proper data structures instead of dictionaries, protocol-based interfaces, and is designed to handle GitHub's API rate limits gracefully while providing fast responses through intelligent caching.
+The bot is built using Elegant Objects principles with PostgreSQL for user telemetry and the Telegram Bot API for user interaction. The system uses proper data structures instead of dictionaries, protocol-based interfaces, and is designed to handle GitHub's API rate limits gracefully while providing real-time GitHub data analysis.
 
 ## Core Components
 
@@ -32,17 +32,15 @@ GitHub contribution data source with integrated line calculation and progress re
 - **Immutable Progress Integration**: Provides `with_progress_reporter` method to create new instances with progress reporting capability
 - **Real-time Updates**: Reports progress at key stages: fetching data, processing results, calculating line stats
 
-### PostgreSQLReportStorage (`gh_summary_bot/storage.py:11-201`)
+### PostgreSQLUserStorage (`gh_summary_bot/storage.py:10-28`)
 
-PostgreSQL operations using aiopg connection pooling. Responsibilities:
+PostgreSQL operations for user telemetry using aiopg connection pooling. Responsibilities:
 
-- Stores and retrieves `ContributionStats` objects
-- Returns `CachedReport` and `AllTimeStats` objects
-- Implements CRUD operations
+- Stores Telegram user to GitHub username mappings
+- Tracks user interaction timestamps
 - Provides transaction-safe operations using context managers
-- Uses proper serialization/deserialization
 
-### TelegramBotApp (`gh_summary_bot/bot.py:219-365`)
+### TelegramBotApp (`gh_summary_bot/bot.py:125-195`)
 
 Telegram bot application. Includes:
 
@@ -51,7 +49,7 @@ Telegram bot application. Includes:
 - Proper separation of concerns with `GitHubBotCommands`
 - Error handling
 
-### GitHubBotCommands (`gh_summary_bot/bot.py:40-217`)
+### GitHubBotCommands (`gh_summary_bot/bot.py:53-124`)
 
 GitHub bot command implementations. Features:
 
@@ -68,17 +66,10 @@ GitHub contribution statistics for a specific year:
 - Contains all yearly contribution metrics
 - Used for primary data transfer
 
-### AllTimeStats (`gh_summary_bot/models.py:32-53`)
-All-time aggregated GitHub statistics:
-- Aggregates data across multiple years
-- Contains cumulative and snapshot metrics
-- Used for all-time reporting
-
-### CachedReport (`gh_summary_bot/models.py:57-77`)
-Cached contribution report data:
-- Includes database metadata (id, created_at)
-- Converts to ContributionStats for processing
-- Used for cache retrieval operations
+### AllTimeStats (`gh_summary_bot/models.py:105-126`)
+All-time aggregated GitHub statistics (legacy, unused):
+- Previously used for multi-year aggregation
+- Kept for backward compatibility
 
 ### Commit (`gh_summary_bot/models.py:81-88`)
 Commit information:
@@ -98,46 +89,18 @@ Line statistics container:
 
 ## Data Flow
 
-1. **Initialization**: Application starts and establishes database connection pool
-2. **User Request**: Telegram user issues a command (`/analyze`, `/cached`, or `/alltime`) through TelegramBotApp
-3. **Command Processing**: GitHubBotCommands processes requests using structured parameters
-4. **Progress Setup**: For operations requiring progress, GitHubBotCommands creates progress-enabled GitHubContributionSource using `with_progress_reporter`
+1. **Initialization**: Application starts and establishes database connection pool for user telemetry
+2. **User Request**: Telegram user issues a command (`/analyze`) through TelegramBotApp with flexible date options
+3. **Command Processing**: GitHubBotCommands parses date arguments into DateRange objects and validates input
+4. **Progress Setup**: GitHubBotCommands creates progress-enabled GitHubContributionSource using `with_progress_reporter`
 5. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient with real-time progress updates
-6. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data
+6. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data with fallback
 7. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
-8. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
-9. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
-10. **Follow-up Interactions**: Users can request detailed views through callback buttons
+8. **Telemetry**: PostgreSQLUserStorage tracks user interactions for analytics
+9. **Response Generation**: TelegramReportTemplate formats fresh results showing actual date ranges and calculation methods
+10. **Real-time Data**: Every analysis fetches fresh data from GitHub API
 
 ## Database Schema
-
-### contribution_reports
-
-Stores yearly GitHub contribution statistics with unique constraint on (username, year):
-
-```sql
-CREATE TABLE contribution_reports (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) NOT NULL,
-    year INTEGER NOT NULL,
-    total_commits INTEGER DEFAULT 0,
-    total_prs INTEGER DEFAULT 0,
-    total_issues INTEGER DEFAULT 0,
-    total_discussions INTEGER DEFAULT 0,
-    total_reviews INTEGER DEFAULT 0,
-    repositories_contributed INTEGER DEFAULT 0,
-    languages JSONB DEFAULT '{}',
-    starred_repos INTEGER DEFAULT 0,
-    followers INTEGER DEFAULT 0,
-    following INTEGER DEFAULT 0,
-    public_repos INTEGER DEFAULT 0,
-    private_contributions INTEGER DEFAULT 0,
-    lines_added INTEGER DEFAULT 0,
-    lines_deleted INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(username, year)
-);
-```
 
 ### telegram_users
 
@@ -193,10 +156,10 @@ stats = await progress_source.contributions(username, year)
 
 ## Performance Optimizations
 
-### Caching Strategy
+### Real-time Analysis
 
-- **Report Caching**: Yearly reports are cached to avoid repeated API calls
-- **Smart Invalidation**: Cache is updated when new data is detected
+- **Fresh Data**: Every request fetches current data from GitHub API
+- **No Stale Cache**: Users always get up-to-date contribution statistics
 
 ### Rate Limit Management
 
