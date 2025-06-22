@@ -4,7 +4,6 @@ from .models import (
     AllTimeStats,
     CachedReport,
     ContributionStats,
-    PullRequest,
 )
 
 
@@ -50,23 +49,6 @@ class UserStorage(Protocol):
         self, telegram_id: int, github_username: Optional[str] = None
     ) -> None:
         """Store telegram user association."""
-        ...
-
-
-@runtime_checkable
-class PRCache(Protocol):
-    """Protocol for caching pull request data."""
-
-    async def cached_prs(self, username: str) -> List[PullRequest]:
-        """Get cached pull requests for a user."""
-        ...
-
-    async def cache_prs(self, username: str, prs: List[PullRequest]) -> None:
-        """Cache pull requests for a user."""
-        ...
-
-    async def has_cache(self, username: str) -> bool:
-        """Check if user has cached PR data."""
         ...
 
 

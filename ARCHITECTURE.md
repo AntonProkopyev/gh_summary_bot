@@ -8,7 +8,7 @@ The bot is built using Elegant Objects principles with PostgreSQL for data persi
 
 ## Core Components
 
-### GraphQLClient (`gh_summary_bot/github_source.py:64-147`)
+### GraphQLClient (`gh_summary_bot/github_source.py:58-148`)
 
 GraphQL client for GitHub API with automatic rate limit handling. This component:
 
@@ -18,9 +18,9 @@ GraphQL client for GitHub API with automatic rate limit handling. This component
 - Implements comprehensive error handling for API failures
 - Uses `RateLimit` and `RequestConfig` models
 
-### GitHubContributionSource (`gh_summary_bot/github_source.py:93-467`)
+### GitHubContributionSource (`gh_summary_bot/github_source.py:151-528`)
 
-GitHub contribution data source with integrated line calculation. Features:
+GitHub contribution data source with integrated line calculation and progress reporting. Features:
 
 - Fetches user contribution statistics using query configurations
 - Calculates line statistics automatically within contributions method
@@ -28,8 +28,11 @@ GitHub contribution data source with integrated line calculation. Features:
 - Handles complex multi-query operations for commit and PR data
 - Implements proper error handling with fallback for line calculation failures
 - Uses `YearRange` for date management
+- **Progress Reporting**: Accepts optional `ProgressReporter` via constructor injection
+- **Immutable Progress Integration**: Provides `with_progress_reporter` method to create new instances with progress reporting capability
+- **Real-time Updates**: Reports progress at key stages: fetching data, processing results, calculating line stats
 
-### PostgreSQLReportStorage (`gh_summary_bot/storage.py:13-218`)
+### PostgreSQLReportStorage (`gh_summary_bot/storage.py:11-201`)
 
 PostgreSQL operations using aiopg connection pooling. Responsibilities:
 
@@ -53,7 +56,8 @@ Telegram bot application. Includes:
 GitHub bot command implementations. Features:
 
 - Command processing using structured data
-- Progress reporting through protocol-based interfaces
+- **Progress Integration**: Uses `with_progress_reporter` to create progress-enabled GitHub sources
+- **Real-time User Feedback**: Provides live updates during long-running operations
 - Returns formatted strings without side effects
 - Delegates to storage and formatting components
 
@@ -97,12 +101,13 @@ Line statistics container:
 1. **Initialization**: Application starts and establishes database connection pool
 2. **User Request**: Telegram user issues a command (`/analyze`, `/cached`, or `/alltime`) through TelegramBotApp
 3. **Command Processing**: GitHubBotCommands processes requests using structured parameters
-4. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient
-5. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data
-6. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
-7. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
-8. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
-9. **Follow-up Interactions**: Users can request detailed views through callback buttons
+4. **Progress Setup**: For operations requiring progress, GitHubBotCommands creates progress-enabled GitHubContributionSource using `with_progress_reporter`
+5. **Data Fetching**: GitHubContributionSource queries GitHub GraphQL API through GraphQLClient with real-time progress updates
+6. **Line Calculation**: Line statistics calculated automatically within contributions method using pull request data
+7. **Results**: All API responses converted to structured objects (ContributionStats, Commit, PullRequest)
+8. **Caching Strategy**: PostgreSQLReportStorage stores/updates reports in PostgreSQL
+9. **Response Generation**: TelegramReportTemplate formats results and provides interactive buttons
+10. **Follow-up Interactions**: Users can request detailed views through callback buttons
 
 ## Database Schema
 
@@ -148,21 +153,42 @@ CREATE TABLE telegram_users (
 );
 ```
 
-### user_pull_requests
 
-Caches pull request data for performance optimization. This table stores individual PR details separately from yearly reports, allowing for faster retrieval when analyzing users with many contributions. The caching system automatically fetches and stores PR data with additions/deletions counts to reduce GitHub API calls:
+## Progress Reporting Architecture
 
-```sql
-CREATE TABLE user_pull_requests (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) NOT NULL,
-    pr_id VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    additions INTEGER DEFAULT 0,
-    deletions INTEGER DEFAULT 0,
-    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(username, pr_id)
-);
+### ProgressReporter Protocol (`gh_summary_bot/protocols.py:106-113`)
+
+Protocol-based interface for reporting operation progress:
+
+- **Pure Interface**: Defines single `report(message: str)` method
+- **Implementation Agnostic**: Can be implemented for any output medium
+- **Async Support**: Designed for asynchronous operations
+
+### TelegramProgressReporter (`gh_summary_bot/bot.py:20-38`)
+
+Telegram-specific implementation for real-time user feedback:
+
+- **Message Updates**: Updates existing Telegram messages with progress
+- **User Context**: Includes username and year information in status messages
+- **Error Resilience**: Gracefully handles message update failures
+
+### Integration Pattern
+
+Following EO principles for progress integration:
+
+1. **Constructor Injection**: GitHubContributionSource accepts optional ProgressReporter
+2. **Immutable Creation**: `with_progress_reporter(progress)` creates new instances
+3. **Internal Helper**: `_report_progress(message)` encapsulates conditional reporting
+4. **Strategic Reporting**: Progress updates at key operation stages
+
+### Usage Examples
+
+```python
+# Create progress-enabled source
+progress_source = github_source.with_progress_reporter(telegram_progress)
+
+# Progress automatically reported during operation
+stats = await progress_source.contributions(username, year)
 ```
 
 ## Performance Optimizations
@@ -170,7 +196,6 @@ CREATE TABLE user_pull_requests (
 ### Caching Strategy
 
 - **Report Caching**: Yearly reports are cached to avoid repeated API calls
-- **PR Caching**: Individual pull request data is cached separately for performance
 - **Smart Invalidation**: Cache is updated when new data is detected
 
 ### Rate Limit Management
@@ -250,9 +275,10 @@ When contributing to this project:
 1. **Use Proper Objects**: Never use dictionaries for data transfer - create structured objects
 2. **Implement Protocols**: All major components must implement protocol interfaces
 3. **Handle Rate Limits**: Always consider GitHub API rate limiting
-4. **Cache Intelligently**: Implement caching using structured objects for expensive operations
-5. **Validate Input**: Never trust user input without validation
-6. **Log Appropriately**: Provide meaningful logs for debugging
-7. **Test Error Paths**: Ensure error conditions are properly handled
-8. **No Implementation Inheritance**: Favor composition and protocol implementation
-9. **Pure Functions**: Avoid side effects in business logic
+4. **Progress Reporting**: Use `with_progress_reporter` pattern for long-running operations
+5. **Immutable Objects**: Follow EO principles with immutable data structures and `with_*` methods
+6. **Validate Input**: Never trust user input without validation
+7. **Log Appropriately**: Provide meaningful logs for debugging
+8. **Test Error Paths**: Ensure error conditions are properly handled
+9. **No Implementation Inheritance**: Favor composition and protocol implementation
+10. **Pure Functions**: Avoid side effects in business logic

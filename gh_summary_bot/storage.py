@@ -4,8 +4,8 @@ from typing import List, Optional
 
 import aiopg
 
-from .models import AllTimeStats, CachedReport, ContributionStats, PullRequest
-from .protocols import ReportStorage, UserStorage, PRCache
+from .models import AllTimeStats, CachedReport, ContributionStats
+from .protocols import ReportStorage, UserStorage
 
 
 class PostgreSQLReportStorage:
@@ -221,82 +221,6 @@ class PostgreSQLUserStorage:
                 await cur.execute(query, (telegram_id, github_username))
 
 
-class PostgreSQLPRCache:
-    def __init__(self, pool: aiopg.Pool):
-        self._pool = pool
-
-    async def cached_prs(self, username: str) -> List[PullRequest]:
-        """Get cached pull requests for a user."""
-        query = """
-        SELECT pr_id, created_at, additions, deletions 
-        FROM user_pull_requests 
-        WHERE username = %s
-        ORDER BY created_at DESC
-        """
-
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (username,))
-                results = await cur.fetchall()
-                return (
-                    [
-                        PullRequest(
-                            created_at=row[1].isoformat() + "Z",
-                            additions=row[2],
-                            deletions=row[3],
-                        )
-                        for row in results
-                    ]
-                    if results
-                    else []
-                )
-
-    async def cache_prs(self, username: str, prs: List[PullRequest]) -> None:
-        """Cache pull requests for a user."""
-        if not prs:
-            return
-
-        insert_query = """
-        INSERT INTO user_pull_requests (username, pr_id, created_at, additions, deletions)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (username, pr_id) DO UPDATE SET
-            additions = EXCLUDED.additions,
-            deletions = EXCLUDED.deletions,
-            fetched_at = CURRENT_TIMESTAMP
-        """
-
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                for pr in prs:
-                    # Extract PR ID from node_id or create one from createdAt + additions
-                    pr_id = f"{pr.created_at}_{pr.additions}_{pr.deletions}"
-                    await cur.execute(
-                        insert_query,
-                        (
-                            username,
-                            pr_id,
-                            pr.created_at.replace(
-                                "Z", "+00:00"
-                            ),  # Convert to proper timestamp
-                            pr.additions,
-                            pr.deletions,
-                        ),
-                    )
-
-    async def has_cache(self, username: str) -> bool:
-        """Check if user has cached PR data."""
-        query = """
-        SELECT COUNT(*) FROM user_pull_requests 
-        WHERE username = %s
-        """
-
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (username,))
-                count = (await cur.fetchone())[0]
-                return count > 0
-
-
 class DatabaseInitializer:
     def __init__(self, pool: aiopg.Pool):
         self._pool = pool
@@ -333,17 +257,6 @@ class DatabaseInitializer:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_query TIMESTAMP
         );
-        
-        CREATE TABLE IF NOT EXISTS user_pull_requests (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(255) NOT NULL,
-            pr_id VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            additions INTEGER DEFAULT 0,
-            deletions INTEGER DEFAULT 0,
-            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(username, pr_id)
-        );
         """
 
         async with self._pool.acquire() as conn:
@@ -358,11 +271,9 @@ class CompositeStorage:
         self,
         report_storage: ReportStorage,
         user_storage: UserStorage,
-        pr_cache: PRCache,
     ):
         self._report_storage = report_storage
         self._user_storage = user_storage
-        self._pr_cache = pr_cache
 
     @property
     def reports(self) -> ReportStorage:
@@ -373,8 +284,3 @@ class CompositeStorage:
     def users(self) -> UserStorage:
         """Get user storage."""
         return self._user_storage
-
-    @property
-    def pr_cache(self) -> PRCache:
-        """Get PR cache."""
-        return self._pr_cache

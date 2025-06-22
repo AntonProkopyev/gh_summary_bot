@@ -12,7 +12,6 @@ from .github_source import GitHubContributionSource, GraphQLClient, RequestConfi
 from .storage import (
     CompositeStorage,
     DatabaseInitializer,
-    PostgreSQLPRCache,
     PostgreSQLReportStorage,
     PostgreSQLUserStorage,
 )
@@ -85,7 +84,6 @@ class Application:
             storage = CompositeStorage(
                 PostgreSQLReportStorage(pool),
                 PostgreSQLUserStorage(pool),
-                PostgreSQLPRCache(pool),
             )
             github_config = RequestConfig(
                 base_url="https://api.github.com/graphql",
