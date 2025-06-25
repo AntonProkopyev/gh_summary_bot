@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -210,12 +211,12 @@ class GitHubContributionSource:
 
                 await self._report_progress("Processing contribution data...")
 
-                languages: dict[str, int] = {}
+                languages: dict[str, int] = defaultdict(int)
                 for repo_contrib in contributions["commitContributionsByRepository"]:
                     if repo_contrib["repository"]["primaryLanguage"]:
                         lang = repo_contrib["repository"]["primaryLanguage"]["name"]
                         count = repo_contrib["contributions"]["totalCount"]
-                        languages[lang] = languages.get(lang, 0) + count
+                        languages[lang] += count
 
                 repos_contributed = (
                     contributions["totalRepositoriesWithContributedCommits"]
